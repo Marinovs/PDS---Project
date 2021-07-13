@@ -13,12 +13,6 @@
 #define DEFAULT_TCP_PORT 8888
 #define DEFAULT_LOG_PATH "/tmp/server.log"
 
-int is_a_number(char *input);
-unsigned long int generateToken(const char *passphrase);
-int handleAuth(unsigned long int T_s, int sockfd);
-unsigned long int getRandom();
-char *subString(char *input, int indexstart, int indexend);
-
 // Function designed for chat between client and server.
 void func(int sockfd, unsigned long int T_s)
 {
@@ -35,44 +29,107 @@ void func(int sockfd, unsigned long int T_s)
     {
         recv(sockfd, buff, MAX, 0);
         printf("User sent: %s", buff);
-
-        if (buff == NULL || strlen(buff) < 4)
-        {
-            printf("Invalid command format");
-            continue;
-        }
-
-        if (buff[0] == '-' && buff[2] == ' ')
-        {
-            if (buff[1] == 'e')
-            {
-                char *command = subString(buff, 3, strlen(buff));
-                puts(command);
-
-                system(command);
-            }
-
-            else if (buff[1] == 'l')
-            {
-            }
-            else if (buff[1] == 'd')
-            {
-            }
-            else if (buff[1] == 'u')
-            {
-            }
-            else
-            {
-                puts("Command not found");
-            }
-        }
-        else
+        
+        /*else
         {
             puts("Invalid command format");
         }
 
-        bzero(buff, MAX);
+        bzero(buff, MAX);*/
     }
+}
+
+
+//Simple function for check if a string is a number
+int is_a_number(char *input)
+{
+    int length = strlen(input);
+    for (int i = 0; i < length; i++)
+    {
+        if (!isdigit(input[i]))
+            return 1;
+    }
+    return 0;
+}
+
+//Simple function for generating an hash token from a string
+unsigned long int generateToken(const char *passphrase)
+{
+    unsigned long int hash = 69681;
+    int c;
+
+    while (c = *passphrase++)
+        hash = ((hash << 5) + hash) + c;
+
+    return hash;
+}
+
+int handleAuth(unsigned long int T_s, int sockfd)
+{
+    char buff[MAX];
+    int response_code;
+
+    //Waiting for client to send the HELO request to init the Authentication phase
+    recv(sockfd, buff, MAX, 0);
+
+    //Check the message
+    if (strcmp(buff, "HELO") == 0)
+    {
+        unsigned long int challenge = getRandom();
+        unsigned long int response = T_s ^ challenge;
+
+        bzero(buff, strlen(buff) + 1);
+
+        printf("Invio 300 e challenge: %lu\n", response);
+
+        //After preparing the challenge the server sends the challeng encoded with his private token
+        response_code = 300;
+        write(sockfd, &response_code, sizeof(int));
+        write(sockfd, &response, sizeof(response));
+
+        //Wait for the client to begin the AUTH phase
+        recv(sockfd, buff, MAX, 0);
+        puts(buff);
+
+        if (strcmp("AUTH", buff) == 0)
+        {
+            unsigned long int enc1, enc2, T_c_i, received_challenge;
+            recv(sockfd, &enc1, sizeof(enc1), 0);
+            recv(sockfd, &enc2, sizeof(enc2), 0);
+            //Calculate the client key with his key
+            T_c_i = enc1 ^ T_s ^ challenge;
+            received_challenge = T_c_i ^ enc2;
+
+            //If the challenge is correct, the authentication is complete
+            if (received_challenge == challenge)
+            {
+                response_code = 200;
+                write(sockfd, &response_code, sizeof(int), 0);
+            }
+            else
+            {
+                response_code = 400;
+                write(sockfd, &response_code, sizeof(int), 0);
+            }
+        }
+        return response_code;
+    }
+
+    return 0;
+}
+
+unsigned long int getRandom()
+{
+    srand(time(NULL));
+    return (unsigned long int)rand();
+}
+
+char *subString(char *input, int indexstart, int indexend)
+{
+    char *start = input + indexstart;
+    char *substring = malloc(indexend - indexstart + 1);
+    memcpy(substring, start, indexend);
+    return substring;
 }
 
 int main(int argc, char *argv[])
@@ -174,96 +231,4 @@ int main(int argc, char *argv[])
 
     // After chatting close the socket
     close(sockfd);
-}
-
-//Simple function for check if a string is a number
-int is_a_number(char *input)
-{
-    int length = strlen(input);
-    for (int i = 0; i < length; i++)
-    {
-        if (!isdigit(input[i]))
-            return 1;
-    }
-    return 0;
-}
-
-//Simple function for generating an hash token from a string
-unsigned long int generateToken(const char *passphrase)
-{
-    unsigned long int hash = 69681;
-    int c;
-
-    while (c = *passphrase++)
-        hash = ((hash << 5) + hash) + c;
-
-    return hash;
-}
-
-int handleAuth(unsigned long int T_s, int sockfd)
-{
-    char buff[MAX];
-    int response_code;
-
-    //Waiting for client to send the HELO request to init the Authentication phase
-    recv(sockfd, buff, MAX, 0);
-
-    //Check the message
-    if (strcmp(buff, "HELO") == 0)
-    {
-        unsigned long int challenge = 900;
-        unsigned long int response = T_s ^ challenge;
-
-        bzero(buff, strlen(buff) + 1);
-
-        printf("Invio 300 e challenge: %lu\n", response);
-
-        //After preparing the challenge the server sends the challeng encoded with his private token
-        response_code = 300;
-        write(sockfd, &response_code, sizeof(int));
-        write(sockfd, &response, sizeof(response));
-
-        //Wait for the client to begin the AUTH phase
-        recv(sockfd, buff, MAX, 0);
-        puts(buff);
-
-        if (strcmp("AUTH", buff) == 0)
-        {
-            unsigned long int enc1, enc2, T_c_i, received_challenge;
-            recv(sockfd, &enc1, sizeof(enc1), 0);
-            recv(sockfd, &enc2, sizeof(enc2), 0);
-            //Calculate the client key with his key
-            T_c_i = enc1 ^ T_s;
-            received_challenge = T_c_i ^ enc2;
-
-            //If the challenge is correct, the authentication is complete
-            if (received_challenge == challenge)
-            {
-                response_code = 200;
-                write(sockfd, &response_code, sizeof(int), 0);
-            }
-            else
-            {
-                response_code = 400;
-                write(sockfd, &response_code, sizeof(int), 0);
-            }
-        }
-        return response_code;
-    }
-
-    return 0;
-}
-
-unsigned long int getRandom()
-{
-    srand(time(NULL));
-    return (unsigned long int)rand();
-}
-
-char *subString(char *input, int indexstart, int indexend)
-{
-    char *start = input + indexstart;
-    char *substring = malloc(indexend - indexstart + 1);
-    memcpy(substring, start, indexend);
-    return substring;
 }

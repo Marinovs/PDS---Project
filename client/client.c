@@ -13,9 +13,6 @@
 #define DEFAULT_TCP_PORT 8888
 #define DEFAULT_LOG_PATH "/tmp/server.log"
 
-int is_a_number(char *input);
-unsigned long int generateToken(const char *passphrase);
-int beginAuth(int sockfd, unsigned long int T_c_i, unsigned long int T_s);
 
 // Function designed for chat between client and server.
 void func(int sockfd, unsigned long int T_c_i, unsigned long int T_s, char *command)
@@ -25,12 +22,105 @@ void func(int sockfd, unsigned long int T_c_i, unsigned long int T_s, char *comm
 
     //Check if the authentication succeeded
     if (response_auth != 200)
-        printf("errore");
+        printf("Authentication failed");
+    else
+        printf("Authentication succeded");
 
     int beginCommand(sockfd, command);
 }
 
-// Driver function
+
+/////////////////////////////////////////////////
+
+int is_a_number(char *input)
+{
+    int length = strlen(input);
+    for (int i = 0; i < length; i++)
+    {
+        if (!isdigit(input[i]))
+            return 1;
+    }
+    return 0;
+}
+
+
+/////////////////////////////////////////////////
+
+unsigned long int generateToken(const char *passphrase)
+{
+    unsigned long int hash = 69681;
+    int c;
+
+    while (c = *passphrase++)
+        hash = ((hash << 5) + hash) + c;
+
+    return hash;
+}
+
+
+
+/////////////////////////////////////////////////
+
+int beginAuth(int sockfd, unsigned long int T_c_i, unsigned long int T_s)
+{
+    char buff[MAX];
+    unsigned long int received_challenge, challenge_response, enc1, enc2;
+    int response_code = 0;
+
+    //Begin the authentication phase by sending HELO
+    sprintf(buff, "HELO");
+    write(sockfd, buff, sizeof(buff));
+    bzero(buff, strlen(buff) + 1);
+
+    recv(sockfd, &response_code, sizeof(response_code), 0);
+
+    if (response_code != 300)
+        return;
+
+    //Get the challenge
+    recv(sockfd, &received_challenge, sizeof(received_challenge), 0);
+
+    printf("\nReceived response from server %d", response_code);
+    printf("\nReceived challenge from server");
+
+    //Extract the challenge using T_s and calculate enc1 and enc2
+    challenge_response = received_challenge ^ T_s;
+    
+    enc1 = T_s ^ challenge_response ^ T_c_i;
+    enc2 = T_c_i ^ challenge_response;
+
+    //Send the challenge back to the server and wait for the results
+    sprintf(buff, "AUTH");
+    write(sockfd, buff, sizeof(buff));
+
+    write(sockfd, &enc1, sizeof(enc1));
+    write(sockfd, &enc2, sizeof(enc2));
+
+    recv(sockfd, &response_code, sizeof(response_code), 0);
+    printf("\nRicevuto response_code: %d\n", response_code);
+    return response_code;
+}
+
+/////////////////////////////////////////////////
+
+int beginCommand(int sockfd, char *command)
+{
+    int response_code;
+    write(sockfd, command, sizeof(command));
+
+    //Get the response from server
+    recv(sockfd, &response_code, sizeof(response_code), 0);
+    puts(response_code);
+
+
+
+    return 0;
+}
+
+
+
+/////////////////////////////////////////////////
+
 int main(int argc, char *argv[])
 {
 
@@ -52,12 +142,42 @@ int main(int argc, char *argv[])
             {
                 server_address = argv[i + 1];
             }
+            //START THE PARSE OF THE COMMAND
+
+            //Exec command
             if (strcmp("-e", argv[i]) == 0)
             {
-
                 strcat(command, "EXEC ");
                 strcat(command, argv[i + 1]);
                 puts(command);
+            }
+            //Path command
+            else if(strcmp("-l", argv[i]) == 0){
+
+                strcat(command, "LST ");
+                strcat(command, argv[i + 1]);
+                puts(command);
+
+            }
+            //Download command
+            else if(strcmp("-d", argv[i]) == 0){
+
+                strcat(command, "DOWNLOAD ");
+                strcat(command, argv[i + 1]);
+                strcat(command, " ");
+                strcat(command, argv[i + 2]);
+                puts(command);
+
+            }
+            //Upload command
+            else if(strcmp("-u", argv[i]) == 0){
+
+                strcat(command, "UPLOAD ");
+                strcat(command, argv[i + 1]);
+                strcat(command, " ");
+                strcat(command, argv[i + 2]);
+                puts(command);
+
             }
         }
     }
@@ -100,6 +220,7 @@ int main(int argc, char *argv[])
     }
     else
         printf("Socket successfully created..\n");
+    
     bzero(&servaddr, sizeof(servaddr));
 
     // assign IP, PORT
@@ -121,68 +242,4 @@ int main(int argc, char *argv[])
 
     // close the socket
     close(sockfd);
-}
-
-int is_a_number(char *input)
-{
-    int length = strlen(input);
-    for (int i = 0; i < length; i++)
-    {
-        if (!isdigit(input[i]))
-            return 1;
-    }
-    return 0;
-}
-
-unsigned long int generateToken(const char *passphrase)
-{
-    unsigned long int hash = 69681;
-    int c;
-
-    while (c = *passphrase++)
-        hash = ((hash << 5) + hash) + c;
-
-    return hash;
-}
-
-int beginAuth(int sockfd, unsigned long int T_c_i, unsigned long int T_s)
-{
-    char buff[MAX];
-    unsigned long int received_challenge, challenge_response, enc1, enc2;
-    int response_code = 0;
-
-    //Begin the authentication phase by sending HELO
-    sprintf(buff, "HELO");
-    write(sockfd, buff, sizeof(buff));
-    bzero(buff, strlen(buff) + 1);
-
-    recv(sockfd, &response_code, sizeof(response_code), 0);
-
-    if (response_code != 300)
-        return;
-
-    //Get the challenge
-    recv(sockfd, &received_challenge, sizeof(received_challenge), 0);
-
-    printf("\nRicevuto response_code e challenge: %d, %lu\n", response_code, received_challenge);
-
-    //Extract the challenge using T_s and calculate enc1 and enc2
-    challenge_response = received_challenge ^ T_s;
-    enc1 = T_s ^ T_c_i;
-    enc2 = T_c_i ^ challenge_response;
-
-    //Send the challenge back to the server and wait for the results
-    sprintf(buff, "AUTH");
-    write(sockfd, buff, sizeof(buff));
-
-    write(sockfd, &enc1, sizeof(enc1));
-    write(sockfd, &enc2, sizeof(enc2));
-
-    recv(sockfd, &response_code, sizeof(response_code), 0);
-    printf("\nRicevuto response_code: %d\n", response_code);
-    return response_code;
-}
-
-int beginCommand(int sockfd, char *command)
-{
 }
