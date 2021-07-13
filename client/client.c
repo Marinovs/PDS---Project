@@ -13,6 +13,7 @@
 #define DEFAULT_TCP_PORT 8888
 #define DEFAULT_LOG_PATH "/tmp/server.log"
 
+////////////START UTILIY SECTION///////////////////
 
 // Function designed for chat between client and server.
 void func(int sockfd, unsigned long int T_c_i, unsigned long int T_s, char *command)
@@ -30,8 +31,7 @@ void func(int sockfd, unsigned long int T_c_i, unsigned long int T_s, char *comm
 }
 
 
-/////////////////////////////////////////////////
-
+//Simple function to check if a string si a number
 int is_a_number(char *input)
 {
     int length = strlen(input);
@@ -44,8 +44,7 @@ int is_a_number(char *input)
 }
 
 
-/////////////////////////////////////////////////
-
+//An hash function that generate a token from a string ( same string = same hash )
 unsigned long int generateToken(const char *passphrase)
 {
     unsigned long int hash = 69681;
@@ -57,9 +56,42 @@ unsigned long int generateToken(const char *passphrase)
     return hash;
 }
 
+//Split a string by spaces, save the size in finalSize and return the bidimensional array containing all the words
+char **splitString(char *originalString,int *finalSize){
+   
+   //Calculate how many words would be created
+   int k = 0;
+   for(int z = 0; z < strlen(originalString); z++)
+   	if(isspace(originalString[z])) k++;
+   k++;
+   *finalSize = k;
+   
+   //Creating a bidimensional array with K rows, each rows is at best larger as the originalString ( no delimiter at all )
+   char **res = (char **)malloc(k+1 * sizeof(char *));
+   for (int i=0; i<k+1; i++)
+         res[i] = (char *)malloc(strlen(originalString) * sizeof(char));
+   
+  
+   //if(!k) return res;      
+         
+   //Get a substring of the original string each time with strtok, and store it in the 2D array
+   int i = 0;
+   char * token = strtok(originalString, " ");
+   while( k > 0 ) {
+      res[i] = token;
+      token = strtok(NULL, " ");
+      i++;
+      k--;
+   }
+   return res; 
+}
+
+////////////END UTILIY FUNCTION///////////////////
 
 
-/////////////////////////////////////////////////
+
+
+
 
 int beginAuth(int sockfd, unsigned long int T_c_i, unsigned long int T_s)
 {
@@ -113,10 +145,8 @@ int beginCommand(int sockfd, char *command)
     puts(response_code);
 
 
-
     return 0;
 }
-
 
 
 /////////////////////////////////////////////////
@@ -149,14 +179,12 @@ int main(int argc, char *argv[])
             {
                 strcat(command, "EXEC ");
                 strcat(command, argv[i + 1]);
-                puts(command);
             }
             //Path command
             else if(strcmp("-l", argv[i]) == 0){
 
                 strcat(command, "LST ");
                 strcat(command, argv[i + 1]);
-                puts(command);
 
             }
             //Download command
@@ -166,7 +194,6 @@ int main(int argc, char *argv[])
                 strcat(command, argv[i + 1]);
                 strcat(command, " ");
                 strcat(command, argv[i + 2]);
-                puts(command);
 
             }
             //Upload command
@@ -176,7 +203,6 @@ int main(int argc, char *argv[])
                 strcat(command, argv[i + 1]);
                 strcat(command, " ");
                 strcat(command, argv[i + 2]);
-                puts(command);
 
             }
         }

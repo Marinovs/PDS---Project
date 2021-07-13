@@ -13,6 +13,51 @@
 #define DEFAULT_TCP_PORT 8888
 #define DEFAULT_LOG_PATH "/tmp/server.log"
 
+//Simple function for generating an hash token from a string
+unsigned long int generateToken(const char *passphrase)
+{
+    unsigned long int hash = 69681;
+    int c;
+
+    while (c = *passphrase++)
+        hash = ((hash << 5) + hash) + c;
+
+    return hash;
+}
+
+//Return a random value
+unsigned long int getRandom()
+{
+    srand(time(NULL));
+    return (unsigned long int)rand();
+}
+
+//Return the substring between indexstart and indexend
+char *subString(char *input, int indexstart, int indexend)
+{
+    char *start = input + indexstart;
+    char *substring = malloc(indexend - indexstart + 1);
+    memcpy(substring, start, indexend);
+    return substring;
+}
+
+//Simple function for check if a string is a number
+int is_a_number(char *input)
+{
+    int length = strlen(input);
+    for (int i = 0; i < length; i++)
+    {
+        if (!isdigit(input[i]))
+            return 1;
+    }
+    return 0;
+}
+
+////////////END UTILIY FUNCTION///////////////////
+
+
+
+
 // Function designed for chat between client and server.
 void func(int sockfd, unsigned long int T_s)
 {
@@ -40,30 +85,7 @@ void func(int sockfd, unsigned long int T_s)
 }
 
 
-//Simple function for check if a string is a number
-int is_a_number(char *input)
-{
-    int length = strlen(input);
-    for (int i = 0; i < length; i++)
-    {
-        if (!isdigit(input[i]))
-            return 1;
-    }
-    return 0;
-}
-
-//Simple function for generating an hash token from a string
-unsigned long int generateToken(const char *passphrase)
-{
-    unsigned long int hash = 69681;
-    int c;
-
-    while (c = *passphrase++)
-        hash = ((hash << 5) + hash) + c;
-
-    return hash;
-}
-
+//Function that handle the authentication phases
 int handleAuth(unsigned long int T_s, int sockfd)
 {
     char buff[MAX];
@@ -116,20 +138,6 @@ int handleAuth(unsigned long int T_s, int sockfd)
     }
 
     return 0;
-}
-
-unsigned long int getRandom()
-{
-    srand(time(NULL));
-    return (unsigned long int)rand();
-}
-
-char *subString(char *input, int indexstart, int indexend)
-{
-    char *start = input + indexstart;
-    char *substring = malloc(indexend - indexstart + 1);
-    memcpy(substring, start, indexend);
-    return substring;
 }
 
 int main(int argc, char *argv[])
