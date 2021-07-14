@@ -67,6 +67,16 @@ char **splitString(char *originalString,int *finalSize){
    return res; 
 }
 
+//Return the substring between indexstart and indexend
+char *subString(char *input, int indexstart, int indexend)
+{
+    char *start = input + indexstart;
+    char *substring = malloc(indexend - indexstart + 1);
+    memcpy(substring, start, indexend);
+    return substring;
+}
+
+
 ////////////END UTILIY FUNCTION///////////////////
 
 
@@ -167,12 +177,16 @@ int beginCommand(int sockfd, char *command)
 
         char out_buff[COMMUNICATION_BUF_SIZE];
         
-        while(recv(sockfd, out_buff, COMMUNICATION_BUF_SIZE ,0) != -1)
+        int msgSize;
+        while( (msgSize = recv(sockfd, out_buff, COMMUNICATION_BUF_SIZE ,0)) != -1)
         {
-            if(strcmp(out_buff," \r\n.\r\n") == 0)
+            char *out = subString(out_buff,0, msgSize);
+            
+            //_________FIX THIS___________
+            if(strcmp(out,"end") == 0)
                 break;
             
-            printf("%s\n", out_buff);
+            printf("%s\n", out);
             bzero(out_buff, COMMUNICATION_BUF_SIZE);
         }
 

@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <errno.h>
 
 #define MAX 256
 #define COMMUNICATION_BUF_SIZE 512
@@ -113,9 +114,9 @@ void func(int sockfd, unsigned long int T_s)
     //Getting the command
     reader = recv(sockfd, buff, COMMUNICATION_BUF_SIZE, 0);
     if(reader == 0) sendResponse(sockfd, 400);
-    else{
+    else
         command = subString(buff, 0, reader);
-    }
+    
     printf("User sent: %s\n", command);
 
     
@@ -129,15 +130,12 @@ void func(int sockfd, unsigned long int T_s)
         sendResponse(sockfd, 400);
         return;
     }
-    for(int i = 0; i < comSize;i++){
-        printf("%s\n", commandAr[i]);
-    }
-
 
     //Set-up the right comunication protocol
     if(strcmp(commandAr[0], "EXEC") == 0){
 
         printf("User sent an EXEC command\n");
+        handleExec(sockfd, commandAr, comSize);
 
     }
     else if(strcmp(commandAr[0], "LSF") == 0){
@@ -216,6 +214,48 @@ int handleAuth(unsigned long int T_s, int sockfd)
         return response_code;
     }
     return 0;
+}
+
+
+int handleExec(int sockfd, char **command, int size){
+
+    char buff[COMMUNICATION_BUF_SIZE];
+    char *commandToExec = malloc(256);
+
+     //Composing the command with the args
+    strcat(commandToExec, command[1]);
+    for(int i = 2; i < size ; i++){
+        strcat(commandToExec, command[i]);
+    }
+
+    //Executing the command
+    FILE *f = popen(commandToExec, "r");
+    //If some error occurred
+    if(!f) {
+        int err = errno;
+        write(sockfd, err, strlen(err), 0);
+        return err;
+    }
+    
+    //Prepare client for receive the output
+    sendResponse(sockfd, 300);
+
+    //get the output and send it back to the client
+    while (fgets(buff, COMMUNICATION_BUF_SIZE, f) != NULL){
+       printf("%s\n", buff);
+       write(sockfd, buff, strlen(buff), 0);
+    }
+    
+    //End comunication  _________FIX THIS___________
+    char *endOfOut = "end";
+    printf("sending%s", endOfOut);
+    write(sockfd, endOfOut, strlen(endOfOut), 0);
+
+    printf("end\n");
+
+    //Close the file
+    close(f);
+    return 1;
 }
 
 int main(int argc, char *argv[])
