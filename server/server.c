@@ -7,6 +7,7 @@
 #include <sys/types.h>
 
 #define MAX 256
+#define COMMUNICATION_BUF_SIZE 512
 #define SA struct sockaddr
 
 #define DEFAULT_MAX_THREADS 10
@@ -53,6 +54,42 @@ int is_a_number(char *input)
     return 0;
 }
 
+//Split a string by spaces, save the size in finalSize and return the bidimensional array containing all the words
+char **splitString(char *originalString,int *finalSize){
+   
+   //Calculate how many words would be created
+   int k = 0;
+   for(int z = 0; z < strlen(originalString); z++)
+   	if(isspace(originalString[z])) k++;
+   k++;
+   *finalSize = k;
+   
+   //Creating a bidimensional array with K rows, each rows is at best larger as the originalString ( no delimiter at all )
+   char **res = (char **)malloc(k+1 * sizeof(char *));
+   for (int i=0; i<k+1; i++)
+         res[i] = (char *)malloc(strlen(originalString) * sizeof(char));
+   
+  
+   //if(!k) return res;      
+         
+   //Get a substring of the original string each time with strtok, and store it in the 2D array
+   int i = 0;
+   char * token = strtok(originalString, " ");
+   while( k > 0 ) {
+      res[i] = token;
+      token = strtok(NULL, " ");
+      i++;
+      k--;
+   }
+   return res; 
+}
+
+//Send 400 through the socker
+int sendResponse(int sockfd, int response){
+    return write(sockfd, &response, sizeof(int), 0);
+}
+
+
 ////////////END UTILIY FUNCTION///////////////////
 
 
@@ -61,7 +98,9 @@ int is_a_number(char *input)
 // Function designed for chat between client and server.
 void func(int sockfd, unsigned long int T_s)
 {
-    char buff[MAX];
+    char buff[COMMUNICATION_BUF_SIZE];
+    char *command;
+    int reader;
 
     //Prepare server to begin the auth phase
     int response_code = handleAuth(T_s, sockfd);
@@ -70,17 +109,61 @@ void func(int sockfd, unsigned long int T_s)
     if (response_code != 200)
         return;
 
-    for (;;)
-    {
-        recv(sockfd, buff, MAX, 0);
-        printf("User sent: %s", buff);
-        
-        /*else
-        {
-            puts("Invalid command format");
-        }
 
-        bzero(buff, MAX);*/
+    //Getting the command
+    reader = recv(sockfd, buff, COMMUNICATION_BUF_SIZE, 0);
+    if(reader == 0) sendResponse(sockfd, 400);
+    else{
+        command = subString(buff, 0, reader);
+    }
+    printf("User sent: %s\n", command);
+
+    
+    
+    int comSize = 0;
+    char **commandAr = splitString(command, &comSize);
+
+    if(comSize < 2)
+    {
+        printf("Invalid command, ending process...\n");
+        sendResponse(sockfd, 400);
+        return;
+    }
+    for(int i = 0; i < comSize;i++){
+        printf("%s\n", commandAr[i]);
+    }
+
+
+    //Set-up the right comunication protocol
+    if(strcmp(commandAr[0], "EXEC") == 0){
+
+        printf("User sent an EXEC command\n");
+
+    }
+    else if(strcmp(commandAr[0], "LSF") == 0){
+        
+        printf("User sent an LSF command\n");
+
+    }
+    else if(strcmp(commandAr[0], "SIZE") == 0){
+        
+        printf("User sent an SIZE command\n");
+
+    }
+    else if(strcmp(commandAr[0], "UPLOAD") == 0){
+        
+        printf("User sent an UPLOAD command\n");
+
+    }
+    else if(strcmp(commandAr[0], "DOWNLOAD") == 0){
+        
+        printf("User sent an DOWNLOAD command\n");
+
+    }
+    else{
+        printf("command not supported, ending process...");
+        sendResponse(sockfd, 400);
+        return;
     }
 }
 
@@ -94,7 +177,7 @@ int handleAuth(unsigned long int T_s, int sockfd)
     //Waiting for client to send the HELO request to init the Authentication phase
     recv(sockfd, buff, MAX, 0);
 
-    //Check the message
+    //Check the first message, must be HELO
     if (strcmp(buff, "HELO") == 0)
     {
         unsigned long int challenge = getRandom();
@@ -105,8 +188,7 @@ int handleAuth(unsigned long int T_s, int sockfd)
         printf("Invio 300 e challenge: %lu\n", response);
 
         //After preparing the challenge the server sends the challeng encoded with his private token
-        response_code = 300;
-        write(sockfd, &response_code, sizeof(int));
+        sendResponse(sockfd, 300);
         write(sockfd, &response, sizeof(response));
 
         //Wait for the client to begin the AUTH phase
@@ -123,20 +205,16 @@ int handleAuth(unsigned long int T_s, int sockfd)
             received_challenge = T_c_i ^ enc2;
 
             //If the challenge is correct, the authentication is complete
-            if (received_challenge == challenge)
-            {
+            if (received_challenge == challenge) 
                 response_code = 200;
-                write(sockfd, &response_code, sizeof(int), 0);
-            }
             else
-            {
                 response_code = 400;
-                write(sockfd, &response_code, sizeof(int), 0);
-            }
+
+            sendResponse(sockfd, response_code);
+            
         }
         return response_code;
     }
-
     return 0;
 }
 

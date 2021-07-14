@@ -7,29 +7,10 @@
 #include <sys/types.h>
 
 #define MAX 256
+#define COMMUNICATION_BUF_SIZE 512
 #define SA struct sockaddr
 
-#define DEFAULT_MAX_THREADS 10
-#define DEFAULT_TCP_PORT 8888
-#define DEFAULT_LOG_PATH "/tmp/server.log"
-
 ////////////START UTILIY SECTION///////////////////
-
-// Function designed for chat between client and server.
-void func(int sockfd, unsigned long int T_c_i, unsigned long int T_s, char *command)
-{
-    char buff[MAX];
-    int response_auth = beginAuth(sockfd, T_c_i, T_s);
-
-    //Check if the authentication succeeded
-    if (response_auth != 200)
-        printf("Authentication failed");
-    else
-        printf("Authentication succeded");
-
-    int beginCommand(sockfd, command);
-}
-
 
 //Simple function to check if a string si a number
 int is_a_number(char *input)
@@ -91,6 +72,26 @@ char **splitString(char *originalString,int *finalSize){
 
 
 
+// Function designed for chat between client and server.
+void func(int sockfd, unsigned long int T_c_i, unsigned long int T_s, char *command)
+{
+    char buff[MAX];
+    int response_auth = beginAuth(sockfd, T_c_i, T_s);
+
+    //Check if the authentication succeeded
+    if (response_auth != 200){
+        printf("Authentication failed\n");
+        return;
+    }
+    else
+        printf("Authentication succeded\n");
+
+    
+    beginCommand(sockfd, command);
+}
+
+
+
 
 
 int beginAuth(int sockfd, unsigned long int T_c_i, unsigned long int T_s)
@@ -133,24 +134,75 @@ int beginAuth(int sockfd, unsigned long int T_c_i, unsigned long int T_s)
     return response_code;
 }
 
+
 /////////////////////////////////////////////////
 
 int beginCommand(int sockfd, char *command)
 {
     int response_code;
-    write(sockfd, command, sizeof(command));
+    
+    //Sending the whole command to the server
+    write(sockfd, command, strlen(command));
 
-    //Get the response from server
-    recv(sockfd, &response_code, sizeof(response_code), 0);
-    puts(response_code);
+    int size = 0;
+    char **commandAr = splitString(command, &size);
+
+    if(size < 2)
+    {
+        printf("Invalid command, ending process...\n");
+        return 0;
+    }
+
+    //Set-up the right comunication protocol
+    if(strcmp(commandAr[0], "EXEC") == 0){
+        
+        //Waiting for server response
+        recv(sockfd, &response_code, sizeof(response_code),0);
+        if(response_code != 300)
+        {
+            printf("Some error with the server has occurred\n");
+            return 0;
+        }
 
 
-    return 0;
+        char out_buff[COMMUNICATION_BUF_SIZE];
+        
+        while(recv(sockfd, out_buff, COMMUNICATION_BUF_SIZE ,0) != -1)
+        {
+            if(strcmp(out_buff," \r\n.\r\n") == 0)
+                break;
+            
+            printf("%s\n", out_buff);
+            bzero(out_buff, COMMUNICATION_BUF_SIZE);
+        }
+
+        printf("Done\n");
+
+    }
+    else if(strcmp(commandAr[0], "LSF") == 0){
+
+    }
+    else if(strcmp(commandAr[0], "SIZE") == 0){
+
+    }
+    else if(strcmp(commandAr[0], "UPLOAD") == 0){
+
+    }
+    else if(strcmp(commandAr[0], "DOWNLOAD") == 0){
+
+    }
+    else{
+        printf("command not supported, ending process...");
+        return 0;
+    }
+    
+
+
+    return 1;
 }
 
 
 /////////////////////////////////////////////////
-
 int main(int argc, char *argv[])
 {
 
@@ -172,8 +224,10 @@ int main(int argc, char *argv[])
             {
                 server_address = argv[i + 1];
             }
+            
             //START THE PARSE OF THE COMMAND
 
+            
             //Exec command
             if (strcmp("-e", argv[i]) == 0)
             {
@@ -213,6 +267,8 @@ int main(int argc, char *argv[])
         exit(0);
     }
 
+    strcat(command, "\0");
+
     //Check if server address and port was setted
     if (strcmp(server_address, "0.0.0.0") == 0 || port == -1)
     {
@@ -224,17 +280,16 @@ int main(int argc, char *argv[])
     printf("Starting client...\nPlease insert a client passhprase: ");
     fgets(client_passphrase, sizeof(client_passphrase), stdin);
 
-    printf("\n");
 
-    //generation of token
+    //generation of client token
     T_c_i = generateToken(client_passphrase);
 
     //asking user to insert server-passphrase
-    printf("Please insert the server passhprase: ");
+    printf("\nPlease insert the server passhprase: ");
     fgets(server_passphrase, sizeof(server_passphrase), stdin);
     printf("\n");
 
-    //generation of token
+    //generation of server token
     T_s = generateToken(server_passphrase);
 
     // socket create and varification
