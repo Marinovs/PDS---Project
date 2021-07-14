@@ -233,7 +233,7 @@ int handleExec(int sockfd, char **command, int size){
     //If some error occurred
     if(!f) {
         int err = errno;
-        write(sockfd, err, strlen(err), 0);
+        write(sockfd, err, strlen(err));
         return err;
     }
     
@@ -242,19 +242,25 @@ int handleExec(int sockfd, char **command, int size){
 
     //get the output and send it back to the client
     while (fgets(buff, COMMUNICATION_BUF_SIZE, f) != NULL){
-       printf("%s\n", buff);
-       write(sockfd, buff, strlen(buff), 0);
+       if(strlen(buff) > 0){
+            printf("sending : %s", buff);
+            write(sockfd, buff, strlen(buff));
+            bzero(buff, COMMUNICATION_BUF_SIZE);
+            
+            //Wait for the ack
+            int resp;
+            recv(sockfd,&resp,sizeof(int),0);
+            if(!resp) break;
+       }
     }
-    
-    //End comunication  _________FIX THIS___________
-    char *endOfOut = "end";
-    printf("sending%s", endOfOut);
-    write(sockfd, endOfOut, strlen(endOfOut), 0);
-
-    printf("end\n");
-
     //Close the file
     close(f);
+    
+    //End comunication  _________FIX THIS___________
+    char *endOfOut = "\r\n.\r\n";
+    write(sockfd, endOfOut, sizeof(endOfOut));
+
+    printf("end\n");
     return 1;
 }
 

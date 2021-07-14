@@ -151,6 +151,9 @@ int beginCommand(int sockfd, char *command)
 {
     int response_code;
     
+    char *endChar = malloc(5);
+    strcat(endChar,"\r\n.\r\n");
+    
     //Sending the whole command to the server
     write(sockfd, command, strlen(command));
 
@@ -177,20 +180,23 @@ int beginCommand(int sockfd, char *command)
 
         char out_buff[COMMUNICATION_BUF_SIZE];
         
-        int msgSize;
-        while( (msgSize = recv(sockfd, out_buff, COMMUNICATION_BUF_SIZE ,0)) != -1)
-        {
-            char *out = subString(out_buff,0, msgSize);
+        while(recv(sockfd, out_buff, COMMUNICATION_BUF_SIZE ,0) > 0){
             
-            //_________FIX THIS___________
-            if(strcmp(out,"end") == 0)
+            //If the output is over, match " \r\n.\r\n "
+            if(strcmp(out_buff, endChar) == 0) {
+                printf("end\n");
                 break;
+            }
             
-            printf("%s\n", out);
+            //Print the stdout line
+            printf("msg : %s\n", out_buff);
+
+            //send ack for synchronize with the server
+            int resp = 1;
+            write(sockfd, &resp, sizeof(int));
+            
             bzero(out_buff, COMMUNICATION_BUF_SIZE);
         }
-
-        printf("Done\n");
 
     }
     else if(strcmp(commandAr[0], "LSF") == 0){
