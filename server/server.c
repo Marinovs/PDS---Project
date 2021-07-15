@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <errno.h>
+#include <pthread.h>
 
 #define MAX 256
 #define COMMUNICATION_BUF_SIZE 512
@@ -14,6 +15,14 @@
 #define DEFAULT_MAX_THREADS 10
 #define DEFAULT_TCP_PORT 8888
 #define DEFAULT_LOG_PATH "/tmp/server.log"
+
+
+typedef struct threadArgs {
+    int sock;
+    unsigned long int T_s;
+};
+
+
 
 //Simple function for generating an hash token from a string
 unsigned long int generateToken(const char *passphrase)
@@ -97,22 +106,26 @@ int sendResponse(int sockfd, int response){
 
 
 // Function designed for chat between client and server.
-void func(int sockfd, unsigned long int T_s)
+void *handleConnection(void* p_args)
 {
+
+    struct threadArgs *args = (struct threadArgs*) p_args;
+    unsigned long int T_s = args->T_s;
+    int sockfd = args->sock;
+
     char buff[COMMUNICATION_BUF_SIZE];
     char *command;
-    int reader;
 
     //Prepare server to begin the auth phase
     int response_code = handleAuth(T_s, sockfd);
 
     //Exit if the authentication has failed
-    if (response_code != 200)
-        return;
-
+    if (response_code == 400){
+        printf("authentication has failed");
+    }
 
     //Getting the command
-    reader = recv(sockfd, buff, COMMUNICATION_BUF_SIZE, 0);
+    int reader = recv(sockfd, buff, COMMUNICATION_BUF_SIZE, 0);
     if(reader == 0) sendResponse(sockfd, 400);
     else
         command = subString(buff, 0, reader);
@@ -128,6 +141,7 @@ void func(int sockfd, unsigned long int T_s)
     {
         printf("Invalid command, ending process...\n");
         sendResponse(sockfd, 400);
+        close(sockfd);
         return;
     }
 
@@ -161,8 +175,12 @@ void func(int sockfd, unsigned long int T_s)
     else{
         printf("command not supported, ending process...");
         sendResponse(sockfd, 400);
+        close(sockfd);
         return;
     }
+    
+    // After the command, close the socket
+    close(sockfd);
 }
 
 
@@ -170,10 +188,12 @@ void func(int sockfd, unsigned long int T_s)
 int handleAuth(unsigned long int T_s, int sockfd)
 {
     char buff[MAX];
-    int response_code;
+    int response_code = 400;
 
     //Waiting for client to send the HELO request to init the Authentication phase
     recv(sockfd, buff, MAX, 0);
+
+    printf("received from client :  %s\n", buff);
 
     //Check the first message, must be HELO
     if (strcmp(buff, "HELO") == 0)
@@ -213,10 +233,10 @@ int handleAuth(unsigned long int T_s, int sockfd)
         }
         return response_code;
     }
-    return 0;
+    return 400;
 }
 
-
+//Function that handle the exec command
 int handleExec(int sockfd, char **command, int size){
 
     char buff[COMMUNICATION_BUF_SIZE];
@@ -225,6 +245,7 @@ int handleExec(int sockfd, char **command, int size){
      //Composing the command with the args
     strcat(commandToExec, command[1]);
     for(int i = 2; i < size ; i++){
+        strcat(commandToExec, " ");
         strcat(commandToExec, command[i]);
     }
 
@@ -243,9 +264,11 @@ int handleExec(int sockfd, char **command, int size){
     //get the output and send it back to the client
     while (fgets(buff, COMMUNICATION_BUF_SIZE, f) != NULL){
        if(strlen(buff) > 0){
+            
             printf("sending : %s", buff);
             write(sockfd, buff, strlen(buff));
             bzero(buff, COMMUNICATION_BUF_SIZE);
+            
             
             //Wait for the ack
             int resp;
@@ -253,10 +276,11 @@ int handleExec(int sockfd, char **command, int size){
             if(!resp) break;
        }
     }
-    //Close the file
+    
+    //Close the stdout of the popen
     close(f);
     
-    //End comunication  _________FIX THIS___________
+    //End comunication
     char *endOfOut = "\r\n.\r\n";
     write(sockfd, endOfOut, sizeof(endOfOut));
 
@@ -264,15 +288,17 @@ int handleExec(int sockfd, char **command, int size){
     return 1;
 }
 
+
 int main(int argc, char *argv[])
 {
 
-    int sockfd, connfd, len, max_thread, port, print_token;
+    int sockfd, client_sock, len, max_thread, port, print_token;
     char *config_path, *log_path;
     char passphrase[256];
     unsigned long int T_s;
     struct sockaddr_in servaddr, cli;
 
+    //Parsing args
     if (argc > 1)
     {
         for (int i = 0; i < argc; i++)
@@ -303,6 +329,8 @@ int main(int argc, char *argv[])
         }
     }
 
+
+
     //asking user to insert passphrase
     printf("Starting server...\nPlease insert a passhprase: ");
     fgets(passphrase, sizeof(passphrase), stdin);
@@ -313,6 +341,16 @@ int main(int argc, char *argv[])
     if (print_token == 1)
         printf("\nServer generates token T_s: %lu\n\n", T_s);
 
+
+    
+    //THREAD POOL GENERATION
+
+
+
+    //END OF POOL GENERATION
+    
+
+    
     // socket create and verification
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd == -1)
@@ -346,21 +384,27 @@ int main(int argc, char *argv[])
     }
     else
         printf("Server listening..\n");
+    
     len = sizeof(cli);
 
     // Accept the data packet from client and verification
-    connfd = accept(sockfd, (SA *)&cli, &len);
-    if (connfd < 0)
-    {
-        printf("server acccept failed...\n");
-        exit(0);
-    }
-    else
-        printf("server acccept the client...\n");
+    while((client_sock = accept(sockfd, (SA *)&cli, &len))){
+      
+      printf("New user connected, spawning a thread...\n");
 
-    // Function for chatting between client and server
-    func(connfd, T_s);
+        pthread_t sniffer_thread;
+		
+        struct threadArgs p_args;
+        p_args.sock = client_sock;
+        p_args.T_s = T_s;
+		
+		if( pthread_create( &sniffer_thread , NULL ,  handleConnection , &p_args) < 0)
+		{
+			perror("could not create thread");
+			return 1;
+		}
+   
+   }
 
-    // After chatting close the socket
-    close(sockfd);
+   close(sockfd);
 }

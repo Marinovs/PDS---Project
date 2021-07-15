@@ -101,9 +101,6 @@ void func(int sockfd, unsigned long int T_c_i, unsigned long int T_s, char *comm
 }
 
 
-
-
-
 int beginAuth(int sockfd, unsigned long int T_c_i, unsigned long int T_s)
 {
     char buff[MAX];
@@ -111,7 +108,9 @@ int beginAuth(int sockfd, unsigned long int T_c_i, unsigned long int T_s)
     int response_code = 0;
 
     //Begin the authentication phase by sending HELO
+
     sprintf(buff, "HELO");
+    printf("sending %s\n", buff);
     write(sockfd, buff, sizeof(buff));
     bzero(buff, strlen(buff) + 1);
 
@@ -338,7 +337,7 @@ int main(int argc, char *argv[])
     else
         printf("connected to the server..\n");
 
-    // function for chat
+    
     func(sockfd, T_c_i, T_s, command);
 
     // close the socket
