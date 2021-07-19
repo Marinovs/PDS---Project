@@ -6,81 +6,11 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 
+#include "basicTools.h"
+
 #define MAX 256
 #define COMMUNICATION_BUF_SIZE 512
 #define SA struct sockaddr
-
-////////////START UTILIY SECTION///////////////////
-
-//Simple function to check if a string si a number
-int is_a_number(char *input)
-{
-    int length = strlen(input);
-    for (int i = 0; i < length; i++)
-    {
-        if (!isdigit(input[i]))
-            return 1;
-    }
-    return 0;
-}
-
-
-//An hash function that generate a token from a string ( same string = same hash )
-unsigned long int generateToken(const char *passphrase)
-{
-    unsigned long int hash = 69681;
-    int c;
-
-    while (c = *passphrase++)
-        hash = ((hash << 5) + hash) + c;
-
-    return hash;
-}
-
-//Split a string by spaces, save the size in finalSize and return the bidimensional array containing all the words
-char **splitString(char *originalString,int *finalSize){
-   
-   //Calculate how many words would be created
-   int k = 0;
-   for(int z = 0; z < strlen(originalString); z++)
-   	if(isspace(originalString[z])) k++;
-   k++;
-   *finalSize = k;
-   
-   //Creating a bidimensional array with K rows, each rows is at best larger as the originalString ( no delimiter at all )
-   char **res = (char **)malloc(k+1 * sizeof(char *));
-   for (int i=0; i<k+1; i++)
-         res[i] = (char *)malloc(strlen(originalString) * sizeof(char));
-   
-  
-   //if(!k) return res;      
-         
-   //Get a substring of the original string each time with strtok, and store it in the 2D array
-   int i = 0;
-   char * token = strtok(originalString, " ");
-   while( k > 0 ) {
-      res[i] = token;
-      token = strtok(NULL, " ");
-      i++;
-      k--;
-   }
-   return res; 
-}
-
-//Return the substring between indexstart and indexend
-char *subString(char *input, int indexstart, int indexend)
-{
-    char *start = input + indexstart;
-    char *substring = malloc(indexend - indexstart + 1);
-    memcpy(substring, start, indexend);
-    return substring;
-}
-
-
-////////////END UTILIY FUNCTION///////////////////
-
-
-
 
 // Function designed for chat between client and server.
 void func(int sockfd, unsigned long int T_c_i, unsigned long int T_s, char *command)
@@ -91,13 +21,20 @@ void func(int sockfd, unsigned long int T_c_i, unsigned long int T_s, char *comm
     //Check if the authentication succeeded
     if (response_auth != 200){
         printf("Authentication failed\n");
+        close(sockfd);
         return;
     }
     else
         printf("Authentication succeded\n");
 
-    
-    beginCommand(sockfd, command);
+    //If no command is provided by the user
+    if(strcmp(command, "NONE") == 0){
+        printf("no command is specified, ending...\n");
+        close(sockfd);
+        return;
+    }
+    else
+        beginCommand(sockfd, command);
 }
 
 
@@ -178,23 +115,23 @@ int beginCommand(int sockfd, char *command)
 
 
         char out_buff[COMMUNICATION_BUF_SIZE];
-        
-        while(recv(sockfd, out_buff, COMMUNICATION_BUF_SIZE ,0) > 0){
+        int msgSize;
+        while( (msgSize = recv(sockfd, out_buff, COMMUNICATION_BUF_SIZE ,0)) > 0){
             
+            char *msg = malloc(msgSize);
+            msg = subString(out_buff,0, msgSize);
+
             //If the output is over, match " \r\n.\r\n "
-            if(strcmp(out_buff, endChar) == 0) {
+            if(strcmp(msg, endChar) == 0) {
                 printf("end\n");
                 break;
             }
             
             //Print the stdout line
-            printf("msg : %s\n", out_buff);
+            printf("msg : %s\n", msg);
 
-            //send ack for synchronize with the server
-            int resp = 1;
-            write(sockfd, &resp, sizeof(int));
-            
             bzero(out_buff, COMMUNICATION_BUF_SIZE);
+            free(msg);
         }
 
     }
@@ -229,6 +166,8 @@ int main(int argc, char *argv[])
     char client_passphrase[256], server_passphrase[256], *server_address = "0.0.0.0", *command = malloc(256);
     unsigned long int T_c_i, T_s;
     struct sockaddr_in servaddr, cli;
+
+    strcat(command, "");
 
     if (argc > 2)
     {
@@ -285,7 +224,12 @@ int main(int argc, char *argv[])
         printf("missing arguments ( min 2 )\n");
         exit(0);
     }
-
+    
+    
+    if(strlen(command) == 0)
+        strcat(command,"NONE");
+    
+    
     strcat(command, "\0");
 
     //Check if server address and port was setted

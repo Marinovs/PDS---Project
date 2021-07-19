@@ -7,6 +7,9 @@
 #include <sys/types.h>
 #include <errno.h>
 #include <pthread.h>
+#include <unistd.h>
+
+#include "basicTools.h"
 
 #define MAX 256
 #define COMMUNICATION_BUF_SIZE 512
@@ -22,88 +25,10 @@ typedef struct threadArgs {
     unsigned long int T_s;
 };
 
-
-
-//Simple function for generating an hash token from a string
-unsigned long int generateToken(const char *passphrase)
-{
-    unsigned long int hash = 69681;
-    int c;
-
-    while (c = *passphrase++)
-        hash = ((hash << 5) + hash) + c;
-
-    return hash;
-}
-
-//Return a random value
-unsigned long int getRandom()
-{
-    srand(time(NULL));
-    return (unsigned long int)rand();
-}
-
-//Return the substring between indexstart and indexend
-char *subString(char *input, int indexstart, int indexend)
-{
-    char *start = input + indexstart;
-    char *substring = malloc(indexend - indexstart + 1);
-    memcpy(substring, start, indexend);
-    return substring;
-}
-
-//Simple function for check if a string is a number
-int is_a_number(char *input)
-{
-    int length = strlen(input);
-    for (int i = 0; i < length; i++)
-    {
-        if (!isdigit(input[i]))
-            return 1;
-    }
-    return 0;
-}
-
-//Split a string by spaces, save the size in finalSize and return the bidimensional array containing all the words
-char **splitString(char *originalString,int *finalSize){
-   
-   //Calculate how many words would be created
-   int k = 0;
-   for(int z = 0; z < strlen(originalString); z++)
-   	if(isspace(originalString[z])) k++;
-   k++;
-   *finalSize = k;
-   
-   //Creating a bidimensional array with K rows, each rows is at best larger as the originalString ( no delimiter at all )
-   char **res = (char **)malloc(k+1 * sizeof(char *));
-   for (int i=0; i<k+1; i++)
-         res[i] = (char *)malloc(strlen(originalString) * sizeof(char));
-   
-  
-   //if(!k) return res;      
-         
-   //Get a substring of the original string each time with strtok, and store it in the 2D array
-   int i = 0;
-   char * token = strtok(originalString, " ");
-   while( k > 0 ) {
-      res[i] = token;
-      token = strtok(NULL, " ");
-      i++;
-      k--;
-   }
-   return res; 
-}
-
 //Send 400 through the socker
 int sendResponse(int sockfd, int response){
-    return write(sockfd, &response, sizeof(int), 0);
+    return write(sockfd, &response, sizeof(int));
 }
-
-
-////////////END UTILIY FUNCTION///////////////////
-
-
-
 
 // Function designed for chat between client and server.
 void *handleConnection(void* p_args)
@@ -121,18 +46,31 @@ void *handleConnection(void* p_args)
 
     //Exit if the authentication has failed
     if (response_code == 400){
-        printf("authentication has failed");
+        printf("authentication has failed\n");
+        close(sockfd);
+        return;
     }
 
-    //Getting the command
+    printf("authentication has succeded\n");
+
+    
+
+    //Getting the command, if no command is sent, close the connection
+    bzero(buff, COMMUNICATION_BUF_SIZE);
+    
     int reader = recv(sockfd, buff, COMMUNICATION_BUF_SIZE, 0);
-    if(reader == 0) sendResponse(sockfd, 400);
+
+    if(reader <= 0){
+        sendResponse(sockfd, 400);
+        close(sockfd);
+        return;
+    }
     else
         command = subString(buff, 0, reader);
     
     printf("User sent: %s\n", command);
 
-    
+    // WRITE INTO THE LOG
     
     int comSize = 0;
     char **commandAr = splitString(command, &comSize);
@@ -184,7 +122,7 @@ void *handleConnection(void* p_args)
 }
 
 
-//Function that handle the authentication phases
+//Function that handle the authentication phases ( AUTH )
 int handleAuth(unsigned long int T_s, int sockfd)
 {
     char buff[MAX];
@@ -236,7 +174,7 @@ int handleAuth(unsigned long int T_s, int sockfd)
     return 400;
 }
 
-//Function that handle the exec command
+//Function that handle the exec command ( EXEC )
 int handleExec(int sockfd, char **command, int size){
 
     char buff[COMMUNICATION_BUF_SIZE];
@@ -262,6 +200,7 @@ int handleExec(int sockfd, char **command, int size){
     sendResponse(sockfd, 300);
 
     //get the output and send it back to the client
+    bzero(buff, COMMUNICATION_BUF_SIZE);
     while (fgets(buff, COMMUNICATION_BUF_SIZE, f) != NULL){
        if(strlen(buff) > 0){
             
@@ -269,11 +208,7 @@ int handleExec(int sockfd, char **command, int size){
             write(sockfd, buff, strlen(buff));
             bzero(buff, COMMUNICATION_BUF_SIZE);
             
-            
-            //Wait for the ack
-            int resp;
-            recv(sockfd,&resp,sizeof(int),0);
-            if(!resp) break;
+            usleep(2000);
        }
     }
     
@@ -287,7 +222,6 @@ int handleExec(int sockfd, char **command, int size){
     printf("end\n");
     return 1;
 }
-
 
 int main(int argc, char *argv[])
 {
@@ -341,7 +275,6 @@ int main(int argc, char *argv[])
     if (print_token == 1)
         printf("\nServer generates token T_s: %lu\n\n", T_s);
 
-
     
     //THREAD POOL GENERATION
 
@@ -349,7 +282,6 @@ int main(int argc, char *argv[])
 
     //END OF POOL GENERATION
     
-
     
     // socket create and verification
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
