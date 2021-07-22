@@ -1,6 +1,8 @@
 {
-    "files.associations": {
-        "in.h": "c",
-        "basictools.h": "c"
-    }
+  "files.associations": {
+    "in.h": "c",
+    "basictools.h": "c",
+    "threadpool.h": "c",
+    "time.h": "c"
+  }
 }
