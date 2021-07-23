@@ -119,6 +119,7 @@ void *handleConnection(void *p_args)
     {
 
         printf("User sent an DOWNLOAD command\n");
+        handleDownload(sockfd, commandAr, comSize);
     }
     else
     {
@@ -273,6 +274,7 @@ int handleLSF(int sockfd, char **commandArr, int size)
     printf("Sending: %s", result);
     write(sockfd, result, sizeof(result));
     fclose(f);
+    printf("communication ended\n");
 
     return 1;
 }
@@ -314,8 +316,9 @@ int handleSize(int sockfd, char **commandArr, int size)
     result = subString(result, 0, i);
     path_size = atoi(result);
 
-    printf("Sending: %li bytes\b", path_size);
-    write(sockfd, &path_size, sizeof(result));
+    printf("Sending: %li bytes\n", path_size);
+    write(sockfd, &path_size, sizeof(path_size));
+    printf("communication ended\n");
 
     return 1;
 }

@@ -203,7 +203,7 @@ int sizeC(int sockfd)
 {
     int response_code;
     puts("\nreceiving SIZE");
-    char out_buff[COMMUNICATION_BUF_SIZE];
+    int out_buff;
 
     //Waiting for server response
     recv(sockfd, &response_code, sizeof(response_code), 0);
@@ -215,7 +215,7 @@ int sizeC(int sockfd)
     printf("resp : %d\n", response_code);
 
     recv(sockfd, &out_buff, sizeof(out_buff), 0);
-    printf("SIZE RECEIVED: %i\n", out_buff);
+    printf("SIZE RECEIVED: %li\n", out_buff);
 
     printf("Done\n");
     return 1;
