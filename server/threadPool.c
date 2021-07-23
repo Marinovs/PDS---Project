@@ -9,36 +9,9 @@
 
 #include "threadPool.h"
 
-typedef struct
-{
-    void (*function)(void *);
-    void *argument;
-} threadpool_task_t;
-
-struct threadpool_t
-{
-    pthread_mutex_t lock;     /* mutex */
-    pthread_cond_t notify;    /* Conditional variable */
-    pthread_t *threads;       /* Starting Pointer of Thread Array */
-    threadpool_task_t *queue; /* Starting Pointer of Task Queue Array */
-    int thread_count;         /* Number of threads */
-    int queue_size;           /* Task queue length */
-    int head;                 /* Current task queue head */
-    int tail;                 /* End of current task queue */
-    int count;                /* Number of tasks currently to be run */
-    int shutdown;             /* Is the current state of the thread pool closed? */
-    int started;              /* Number of threads running */
-};
-
-typedef enum
-{
-    immediate_shutdown = 1,
-    graceful_shutdown = 2
-} threadpool_shutdown_t;
-
 static void *threadpool_thread(void *threadpool);
-
 int threadpool_free(threadpool_t *pool);
+
 
 threadpool_t *threadpool_create(int thread_count, int queue_size, int flags)
 {
@@ -57,7 +30,7 @@ threadpool_t *threadpool_create(int thread_count, int queue_size, int flags)
         goto err;
     }
 
-    /* Initialize */
+    /* Init*/
     pool->thread_count = 0;
     pool->queue_size = queue_size;
     pool->head = pool->tail = pool->count = 0;
@@ -71,6 +44,7 @@ threadpool_t *threadpool_create(int thread_count, int queue_size, int flags)
     /* Initialize mutex and conditional variable first */
     /* Initialize mutexes and conditional variables */
     if ((pthread_mutex_init(&(pool->lock), NULL) != 0) ||
+        (pthread_mutex_init(&(pool->logLock), NULL) != 0) ||
         (pthread_cond_init(&(pool->notify), NULL) != 0) ||
         (pool->threads == NULL) ||
         (pool->queue == NULL))
@@ -82,8 +56,7 @@ threadpool_t *threadpool_create(int thread_count, int queue_size, int flags)
     /* Create a specified number of threads to start running */
     for (i = 0; i < thread_count; i++)
     {
-        if (pthread_create(&(pool->threads[i]), NULL,
-                           threadpool_thread, (void *)pool) != 0)
+        if (pthread_create(&(pool->threads[i]), NULL, threadpool_thread, (void *)pool) != 0)
         {
             threadpool_destroy(pool, 0);
             return NULL;
@@ -91,7 +64,6 @@ threadpool_t *threadpool_create(int thread_count, int queue_size, int flags)
         pool->thread_count++;
         pool->started++;
     }
-
     return pool;
 
 err:
@@ -102,15 +74,14 @@ err:
     return NULL;
 }
 
-int threadpool_add(threadpool_t *pool, void (*function)(void *),
-                   void *argument, int flags)
+int threadpool_add(threadpool_t *pool, void (*function)(void *), void *argument, int flags)
 {
     int err = 0;
     int next;
 
     if (pool == NULL || function == NULL)
     {
-        puts("pool or function null");
+        printf("pool or function null");
 
         return threadpool_invalid;
     }
@@ -132,7 +103,7 @@ int threadpool_add(threadpool_t *pool, void (*function)(void *),
         /* Check if the task queue is full */
         if (pool->count == pool->queue_size)
         {
-            puts("task queue full");
+            printf("task queue full");
             err = threadpool_queue_full;
             break;
         }
@@ -141,7 +112,7 @@ int threadpool_add(threadpool_t *pool, void (*function)(void *),
         /* Check whether the current thread pool state is closed */
         if (pool->shutdown)
         {
-            puts("shutdown");
+            printf("shutdown");
             err = threadpool_shutdown;
             break;
         }
@@ -155,30 +126,18 @@ int threadpool_add(threadpool_t *pool, void (*function)(void *),
         pool->count += 1;
 
         /* pthread_cond_broadcast */
-        /*
-         * Send out signal to indicate that task has been added
-         * If a thread is blocked because the task queue is empty, there will be a wake-up call.
-         * If not, do nothing.
-         */
+        // Send out signal to indicate that task has been added
         if (pthread_cond_signal(&(pool->notify)) != 0)
         {
-            puts("task queue empty");
+            printf("task queue empty");
             err = threadpool_lock_failure;
             break;
         }
-        /*
-         * The do {...} while (0) structure is used here.
-         * Ensure that the process is executed at most once, but in the middle it is easy to jump out of the execution block because of exceptions
-         */
     } while (0);
 
     /* Release mutex resources */
-    if (pthread_mutex_unlock(&pool->lock) != 0)
-    {
-        puts("boh");
-        err = threadpool_lock_failure;
-    }
-
+    if (pthread_mutex_unlock(&pool->lock) != 0) err = threadpool_lock_failure;
+    
     return err;
 }
 
@@ -228,10 +187,8 @@ int threadpool_destroy(threadpool_t *pool, int flags)
                 err = threadpool_thread_failure;
             }
         }
-        /* Also do{...} while(0) structure*/
     } while (0);
 
-    /* Only if everything went well do we deallocate the pool */
     if (!err)
     {
         /* Release memory resources */
@@ -247,18 +204,17 @@ int threadpool_free(threadpool_t *pool)
         return -1;
     }
 
-    /* Did we manage to allocate ? */
-    /* Release memory resources occupied by thread task queue mutex conditional variable thread pool */
     if (pool->threads)
     {
         free(pool->threads);
         free(pool->queue);
 
-        /* Because we allocate pool->threads after initializing the
-           mutex and condition variable, we're sure they're
-           initialized. Let's lock the mutex just in case. */
+        //Destroy the locks
         pthread_mutex_lock(&(pool->lock));
         pthread_mutex_destroy(&(pool->lock));
+        pthread_mutex_lock(&(pool->logLock));
+        pthread_mutex_destroy(&(pool->logLock));
+        
         pthread_cond_destroy(&(pool->notify));
     }
     free(pool);
@@ -270,18 +226,15 @@ static void *threadpool_thread(void *threadpool)
     threadpool_t *pool = (threadpool_t *)threadpool;
     threadpool_task_t task;
 
-    for (;;)
+    while(1)
     {
-        /* Lock must be taken to wait on conditional variable */
         /* Get mutex resources */
         pthread_mutex_lock(&(pool->lock));
 
-        /* Wait on condition variable, check for spurious wakeups.
-           When returning from pthread_cond_wait(), we own the lock. */
-        /* The purpose of using while is to re-examine the condition during wake-up. */
+
         while ((pool->count == 0) && (!pool->shutdown))
         {
-            /* The task queue is empty and the thread pool is blocked when it is not closed */
+            //If the pool is active but there aren't any taks, wait for a task to be added OR for the pool to be shutted down
             pthread_cond_wait(&(pool->notify), &(pool->lock));
         }
 

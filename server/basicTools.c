@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <time.h>
+#include <pthread.h>
 
 #include "basicTools.h"
 
@@ -82,15 +83,15 @@ char **splitString(char *originalString, int *finalSize)
 }
 
 //Write to log thread_id, client_ip, client_port, type of request and timestamp
-void writeToLog(char *type, char **client_info, char *path, pid_t pid, pthread_t tid)
+void writeToLog(char *type, char **client_info, pid_t pid, pthread_t tid, pthread_mutex_t lock)
 {
+    //Get the lock for write on the file
+    char *logpath = client_info[2];
 
-    puts(path);
-    FILE *f = fopen(path, "a");
     char *row = malloc(256), tid_s[256], time_s[256];
 
-    sprintf(tid_s, "%u", tid);
-    sprintf(time_s, "%u", time(NULL));
+    sprintf(tid_s, "%lu", tid);
+    sprintf(time_s, "%lu", time(NULL));
 
     strcat(row, "THREAD_ID: ");
     strcat(row, tid_s);
@@ -108,13 +109,20 @@ void writeToLog(char *type, char **client_info, char *path, pid_t pid, pthread_t
     strcat(row, time_s);
     strcat(row, "\n");
 
+    //Get the lock on the file
+    pthread_mutex_lock(&lock);
+
+    //Write down the log onto the file
+    FILE *f = fopen(logpath, "a");
     if (f == NULL)
     {
         perror("Error opening file!");
         exit(1);
     }
 
-    //puts(row);
     fprintf(f, "%s", row);
     fclose(f);
+    free(row);
+
+    pthread_mutex_unlock(&lock);
 }

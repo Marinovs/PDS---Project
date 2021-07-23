@@ -9,7 +9,6 @@ gcc client.o basicTools.o -o clientStart
 cd ../server
 gcc -c server.c
 gcc -c basicTools.c
-gcc -c threadPool.c
+gcc -c threadPool.c -pthread
 gcc server.o basicTools.o threadPool.o -o serverStart -pthread
 
-clear
