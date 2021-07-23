@@ -35,6 +35,38 @@ int sendResponse(int sockfd, int response)
     return write(sockfd, &response, sizeof(int));
 }
 
+int sendStatus(int sockfd, int status)
+{
+    int response = status;
+    char *responseC = calloc(0, 10);
+
+    if (status == 0)
+        return 1;
+
+    if (status == -1)
+    {
+        perror("pclose");
+    }
+    else if (WIFSIGNALED(status))
+    {
+        response = WTERMSIG(status);
+        printf("terminating signal: %d\n", WTERMSIG(status));
+    }
+    else if (WIFEXITED(status))
+    {
+        response = WEXITSTATUS(status);
+        printf("exit with status: %d\n", WEXITSTATUS(status));
+    }
+    else
+    {
+        response = -1;
+        printf("unexpected: %d\n", status);
+    }
+
+    sprintf(responseC, "An error occurred during the execution ( %d )\n", response);
+    return write(sockfd, responseC, strlen(responseC));
+}
+
 // Function designed for chat between client and server.
 void *handleConnection(void *p_args)
 {
@@ -119,7 +151,6 @@ void *handleConnection(void *p_args)
     {
 
         printf("User sent an DOWNLOAD command\n");
-        handleDownload(sockfd, commandAr, comSize);
     }
     else
     {
@@ -189,13 +220,16 @@ int handleExec(int sockfd, char **commandArr, int size)
     printf("handling Exec\n");
     char *command = malloc(256);
     char buff[COMMUNICATION_BUF_SIZE];
+    bzero(command, 256);
+
+    printf("size is %d\n", size);
 
     //Composing the command with the args
     strcat(command, commandArr[1]);
     for (int i = 2; i < size; i++)
     {
         strcat(command, " ");
-        strcat(command, command[i]);
+        strcat(command, commandArr[i]);
     }
 
     //Executing the command
@@ -220,6 +254,9 @@ int handleExec(int sockfd, char **commandArr, int size)
         usleep(2000);
         if (fgets(buff, COMMUNICATION_BUF_SIZE, f) == NULL)
         {
+
+            sendStatus(sockfd, pclose(f));
+
             //End comunication
             char *endOfOut = "\r\n.\r\n";
             write(sockfd, endOfOut, sizeof(endOfOut));
