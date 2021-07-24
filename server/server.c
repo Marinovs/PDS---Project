@@ -146,11 +146,13 @@ void *handleConnection(void *p_args)
     {
 
         printf("User sent an UPLOAD command\n");
+        handleUpload(sockfd, commandAr, comSize);
     }
     else if (strcmp(commandAr[0], "DOWNLOAD") == 0)
     {
 
         printf("User sent an DOWNLOAD command\n");
+        handleDownload(sockfd, commandAr, comSize);
     }
     else
     {
@@ -359,6 +361,122 @@ int handleSize(int sockfd, char **commandArr, int size)
 
     return 1;
 }
+
+int handleDownload(int sockfd, char **commandArr, int size)
+{
+    int response_code, n;
+    char out_buff[COMMUNICATION_BUF_SIZE], *path_src = malloc(256), *path_dest = malloc(256);
+
+    strcat(path_src, commandArr[1]);
+    strcat(path_dest, commandArr[2]);
+
+    printf("Received file %s from client that will be stored in %s\n", commandArr[1], commandArr[2]);
+    //sending path
+    write(sockfd, path_src, 512);
+    write(sockfd, path_dest, 512);
+
+    //receive response
+    recv(sockfd, &response_code, sizeof(response_code), 0);
+
+    if (response_code != 300)
+    {
+        // we need to send response code 400?
+        perror("File not found on client.");
+        return 0;
+    }
+
+    FILE *f = fopen(commandArr[2], "w");
+
+    if (f == NULL)
+    {
+        // we need to send response code 400?
+
+        perror("File not found on server.");
+        return 0;
+    }
+
+    while (1)
+    {
+        n = recv(sockfd, out_buff, sizeof(out_buff), 0);
+
+        if (n <= 0)
+        {
+            break;
+            return;
+        }
+        fprintf(f, "%s", out_buff);
+        bzero(out_buff, COMMUNICATION_BUF_SIZE);
+    }
+
+    fclose(f);
+    puts("Download done.");
+
+    free(path_src);
+    free(path_dest);
+    return 1;
+}
+
+//Function that handle upload command
+int handleUpload(int sockfd, char **commandArr, int size)
+{
+    int response_code = 300, n;
+    char data[COMMUNICATION_BUF_SIZE] = {0}, *path_src = malloc(256), *path_dest = malloc(256);
+    struct stat path_stat;
+
+    strcat(path_src, commandArr[1]);
+    strcat(path_dest, commandArr[2]);
+
+    stat(path_src, &path_stat);
+
+    if (S_ISREG(path_stat.st_mode) != 1)
+    {
+        perror("Not a file.");
+        response_code = 400;
+        write(sockfd, &response_code, sizeof(response_code));
+        return 0;
+    }
+
+    printf("Sending file %s that will be stored in %s\n", path_src, path_dest);
+    //sending path
+    FILE *f = fopen(path_src, "r");
+
+    if (f == NULL)
+    {
+        // we need to send response code 400?
+        response_code = 400;
+        write(sockfd, &response_code, sizeof(response_code));
+        perror("File not found on server.");
+        return 0;
+    }
+
+    //send response
+    write(sockfd, &response_code, sizeof(response_code));
+
+    //sending dest path
+    write(sockfd, path_src, sizeof(path_src));
+    write(sockfd, path_dest, sizeof(path_dest));
+
+    while (fgets(data, COMMUNICATION_BUF_SIZE, f) != NULL)
+    {
+        if (send(sockfd, data, sizeof(data), 0) == -1)
+        {
+            perror("Error sending file.");
+
+            response_code = 400;
+            write(sockfd, &response_code, sizeof(response_code));
+            return 0;
+        }
+        bzero(data, COMMUNICATION_BUF_SIZE);
+    }
+
+    fclose(f);
+    puts("Upload done.");
+
+    free(path_src);
+    free(path_dest);
+    return 1;
+}
+
 
 int checkDirectory(char *dir)
 {
