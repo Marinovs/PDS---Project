@@ -1,7 +1,10 @@
 #include <stdio.h>
-#include <stdlib.h>
+#include <netdb.h>
 #include <string.h>
 #include <sys/types.h>
+#include <netinet/in.h>
+#include <stdlib.h>
+#include <sys/socket.h>
 
 #include "basicTools.h"
 
@@ -69,7 +72,6 @@ char **splitString(char *originalString, int *finalSize)
     //Get a substring of the original string each time with strtok, and store it in the 2D array
     int i = 0;
     char *token = strtok(x, " ");
-
     while (k > 0)
     {
         if (token == NULL)
@@ -84,7 +86,6 @@ char **splitString(char *originalString, int *finalSize)
         k--;
     }
     free(x);
-
     return res;
 }
 

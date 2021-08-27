@@ -1,37 +1,20 @@
 #define THREAD 10
 #define QUEUE 256
-#define WINVER 0x600
-#define _WIN32_WINNT 0x600
 
 #include <stdio.h>
+#include <pthread.h>
 #include <unistd.h>
 #include <assert.h>
 #include <stdlib.h>
-#include <winsock2.h>
-#include <windows.h>
+
 #include "threadPool.h"
 
 static void *threadpool_thread(void *threadpool);
 int threadpool_free(threadpool_t *pool);
 
-struct threadpool_t
-{
-    SRWLOCK lock;               /* srwlock for the thread tasks*/
-    CRITICAL_SECTION logLock;  /* critical section for the log file*/
-    CONDITION_VARIABLE notify;  /* Conditional variable */
-    HANDLE *threads;          /* Starting Pointer of Thread Array */
-    threadpool_task_t *queue; /* Starting Pointer of Task Queue Array */
-    int thread_count;         /* Number of threads */
-    int queue_size;           /* Task queue length */
-    int head;                 /* Current task queue head */
-    int tail;                 /* End of current task queue */
-    int count;                /* Number of tasks currently to be run */
-    int shutdown;             /* Is the current state of the thread pool closed? */
-    int started;              /* Number of threads running */
-};
-
 threadpool_t *threadpool_create(int thread_count, int queue_size, int flags)
 {
+
     if (thread_count <= 0 || thread_count > MAX_THREADS || queue_size <= 0 || queue_size > MAX_QUEUE)
     {
         return NULL;
@@ -54,17 +37,14 @@ threadpool_t *threadpool_create(int thread_count, int queue_size, int flags)
 
     /* Allocate thread and task queue */
     /* Memory required to request thread arrays and task queues */
-    pool->threads = (HANDLE *)malloc(sizeof(HANDLE) * thread_count);
+    pool->threads = (pthread_t *)malloc(sizeof(pthread_t) * thread_count);
     pool->queue = (threadpool_task_t *)malloc(sizeof(threadpool_task_t) * queue_size);
 
     /* Initialize mutex and conditional variable first */
-
-
     /* Initialize mutexes and conditional variables */
-    InitializeConditionVariable(&(pool->notify));
-    InitializeSRWLock(&(pool->lock));
-    
-    if ((InitializeCriticalSectionAndSpinCount( &(pool->logLock), 0x80000400) == 0) ||
+    if ((pthread_mutex_init(&(pool->lock), NULL) != 0) ||
+        (pthread_mutex_init(&(pool->logLock), NULL) != 0) ||
+        (pthread_cond_init(&(pool->notify), NULL) != 0) ||
         (pool->threads == NULL) ||
         (pool->queue == NULL))
     {
@@ -75,7 +55,7 @@ threadpool_t *threadpool_create(int thread_count, int queue_size, int flags)
     /* Create a specified number of threads to start running */
     for (i = 0; i < thread_count; i++)
     {
-        if (CreateThread( NULL , 0 ,  threadpool_thread , (void *)pool, 0, &(pool->threads[i])) == NULL)
+        if (pthread_create(&(pool->threads[i]), NULL, threadpool_thread, (void *)pool) != 0)
         {
             threadpool_destroy(pool, 0);
             return NULL;
@@ -98,19 +78,19 @@ int threadpool_add(threadpool_t *pool, void (*function)(void *), void *argument,
     int err = 0;
     int next;
 
-    if (pool == NULL)
+    if (pool == NULL || function == NULL)
     {
-        printf("pool null\n");
-        return threadpool_invalid;
-    }
-    if(function == NULL)
-    {
-        printf("function null\n");
+        printf("pool or function null");
+
         return threadpool_invalid;
     }
 
     /* Mutual exclusion lock ownership must be acquired first */
-    AcquireSRWLockExclusive(&(pool->lock));
+    if (pthread_mutex_lock(&(pool->lock)) != 0)
+    {
+
+        return threadpool_lock_failure;
+    }
 
     /* Calculate the next location where task can be stored */
     next = pool->tail + 1;
@@ -146,11 +126,17 @@ int threadpool_add(threadpool_t *pool, void (*function)(void *), void *argument,
 
         /* pthread_cond_broadcast */
         // Send out signal to indicate that task has been added
-        WakeConditionVariable(&(pool->notify));
+        if (pthread_cond_signal(&(pool->notify)) != 0)
+        {
+            printf("task queue empty");
+            err = threadpool_lock_failure;
+            break;
+        }
     } while (0);
 
     /* Release mutex resources */
-    ReleaseSRWLockExclusive(&(pool->lock));
+    if (pthread_mutex_unlock(&pool->lock) != 0)
+        err = threadpool_lock_failure;
 
     return err;
 }
@@ -165,7 +151,10 @@ int threadpool_destroy(threadpool_t *pool, int flags)
     }
 
     /* Get mutex resources */
-    AcquireSRWLockExclusive(&(pool->lock));
+    if (pthread_mutex_lock(&(pool->lock)) != 0)
+    {
+        return threadpool_lock_failure;
+    }
 
     do
     {
@@ -173,6 +162,7 @@ int threadpool_destroy(threadpool_t *pool, int flags)
         /* Determine whether it has been closed elsewhere */
         if (pool->shutdown)
         {
+
             err = threadpool_shutdown;
             break;
         }
@@ -182,20 +172,31 @@ int threadpool_destroy(threadpool_t *pool, int flags)
 
         /* Wake up all worker threads */
         /* Wake up all threads blocked by dependent variables and release mutexes */
-        WakeAllConditionVariable(&(pool->notify));
-        ReleaseSRWLockExclusive(&(pool->lock));
+
+        if ((pthread_cond_broadcast(&(pool->notify)) != 0) ||
+            (pthread_mutex_unlock(&(pool->lock)) != 0))
+        {
+
+            err = threadpool_lock_failure;
+            break;
+        }
 
         /* Join all worker thread */
         /* Waiting for all threads to end */
         for (i = 0; i < pool->thread_count; i++)
         {
-            WaitForSingleObject(pool->threads[i], INFINITE);
+            if (pthread_join(pool->threads[i], NULL) != 0)
+            {
+
+                err = threadpool_thread_failure;
+            }
         }
     } while (0);
 
     if (!err)
     {
         /* Release memory resources */
+
         threadpool_free(pool);
     }
     return err;
@@ -213,8 +214,15 @@ int threadpool_free(threadpool_t *pool)
         free(pool->threads);
         free(pool->queue);
 
-        DeleteCriticalSection(&(pool->logLock));
+        //Destroy the locks
+        pthread_mutex_lock(&(pool->lock));
+        pthread_mutex_destroy(&(pool->lock));
+        pthread_mutex_lock(&(pool->logLock));
+        pthread_mutex_destroy(&(pool->logLock));
+
+        pthread_cond_destroy(&(pool->notify));
     }
+
     free(pool);
     return 0;
 }
@@ -227,12 +235,12 @@ static void *threadpool_thread(void *threadpool)
     while (1)
     {
         /* Get mutex resources */
-        AcquireSRWLockExclusive(&(pool->lock));
+        pthread_mutex_lock(&(pool->lock));
 
         while ((pool->count == 0) && (!pool->shutdown))
         {
             //If the pool is active but there aren't any taks, wait for a task to be added OR for the pool to be shutted down
-            SleepConditionVariableSRW(&(pool->notify), &(pool->lock), INFINITE, NULL);
+            pthread_cond_wait(&(pool->notify), &(pool->lock));
         }
 
         /* Closing Processing */
@@ -254,7 +262,7 @@ static void *threadpool_thread(void *threadpool)
 
         /* Unlock */
         /* Release mutex */
-        ReleaseSRWLockExclusive(&(pool->lock));
+        pthread_mutex_unlock(&(pool->lock));
 
         /* Get to work */
         /* Start running tasks */
@@ -263,8 +271,11 @@ static void *threadpool_thread(void *threadpool)
     }
 
     /* Threads will end, update the number of running threads */
+
     pool->started--;
-    ReleaseSRWLockExclusive(&(pool->lock));
-    ExitThread(NULL);
+
+    pthread_mutex_unlock(&(pool->lock));
+
+    pthread_exit(NULL);
     return (NULL);
 }

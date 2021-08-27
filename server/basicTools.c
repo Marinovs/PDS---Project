@@ -1,9 +1,13 @@
 #include <stdio.h>
+#include <netdb.h>
+#include <netinet/in.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <time.h>
-#include <winsock2.h>
+#include <pthread.h>
+#include <signal.h>
 
 #include "basicTools.h"
 
@@ -22,7 +26,7 @@ unsigned long int generateToken(const char *passphrase)
 int checkDirectory(char *dir)
 {
     FILE *file;
-    if ((file = fopen(dir, "w")))
+    if ((file = fopen(dir, "r")))
         fclose(file);
     else
     {
@@ -42,9 +46,9 @@ unsigned long int getRandom()
 char *subString(char *input, int indexstart, int indexend)
 {
     char *start = input + indexstart;
-    char *substring = malloc(indexend - indexstart + 1);
-    memset(substring, 0, indexend - indexstart + 1);
+    char *substring = malloc(indexend - indexstart + 2);
     memcpy(substring, start, indexend);
+    strcat(substring, "\0");
     return substring;
 }
 
@@ -84,7 +88,6 @@ char **splitString(char *originalString, int *finalSize)
     //Get a substring of the original string each time with strtok, and store it in the 2D array
     int i = 0;
     char *token = strtok(x, " ");
-
     while (k > 0)
     {
         if (token == NULL)
@@ -99,12 +102,11 @@ char **splitString(char *originalString, int *finalSize)
         k--;
     }
     free(x);
-
     return res;
 }
 
 //Write to log thread_id, client_ip, client_port, type of request and timestamp
-void writeToLog(char *type, char **client_info, DWORD tid, CRITICAL_SECTION lock)
+void writeToLog(char *type, char **client_info, pthread_t tid, pthread_mutex_t lock)
 {
     //Get the lock for write on the file
     char *logpath = client_info[2];
@@ -130,8 +132,8 @@ void writeToLog(char *type, char **client_info, DWORD tid, CRITICAL_SECTION lock
     strcat(row, time_s);
     strcat(row, "\n");
 
-    //Get the lock on the file, entering the critical section
-    EnterCriticalSection(&lock);
+    //Get the lock on the file
+    pthread_mutex_lock(&lock);
 
     //Write down the log onto the file
     FILE *f = fopen(logpath, "a");
@@ -145,9 +147,10 @@ void writeToLog(char *type, char **client_info, DWORD tid, CRITICAL_SECTION lock
     fclose(f);
     free(row);
 
-    LeaveCriticalSection(&lock);
+    pthread_mutex_unlock(&lock);
 }
 
+//Read the file config
 int readConfig(int *port, int *max_thread, char *path)
 {
     char buff[256];
@@ -181,7 +184,7 @@ int readConfig(int *port, int *max_thread, char *path)
             return 0;
         }
 
-        memset(buff, 0, 256);
+        bzero(buff, 256);
     }
 
     fclose(f);
