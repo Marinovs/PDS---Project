@@ -1,9 +1,6 @@
 #include <stdio.h>
-#include <netdb.h>
-#include <netinet/in.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <sys/types.h>
 
 #include "basicTools.h"
@@ -49,32 +46,64 @@ int is_a_number(char *input)
 }
 
 //Split a string by spaces, save the size in finalSize and return the bidimensional array containing all the words
-char **splitString(char *originalString,int *finalSize){
-   
-   //Calculate how many words would be created
-   int k = 0;
-   for(int z = 0; z < strlen(originalString); z++)
-   	if(isspace(originalString[z])) k++;
-   k++;
-   *finalSize = k;
-   
-   //Creating a bidimensional array with K rows, each rows is at best larger as the originalString ( no delimiter at all )
-   char **res = (char **)malloc(k+1 * sizeof(char *));
-   for (int i=0; i<k+1; i++)
-         res[i] = (char *)malloc(strlen(originalString) * sizeof(char));
-   
-  
-   //if(!k) return res;      
-         
-   //Get a substring of the original string each time with strtok, and store it in the 2D array
-   int i = 0;
-   char * token = strtok(originalString, " ");
-   while( k > 0 ) {
-      res[i] = token;
-      token = strtok(NULL, " ");
-      i++;
-      k--;
-   }
-   return res; 
+char **splitString(char *originalString, int *finalSize)
+{
+
+    char *x = malloc(strlen(originalString) + 1);
+    strcpy(x, originalString);
+    strcat(x, "\0");
+
+    //Calculate how many words would be created
+    int k = 0;
+    for (int z = 0; z < strlen(x); z++)
+        if (isspace(x[z]))
+            k++;
+    k++;
+    *finalSize = k;
+
+    //Creating a bidimensional array with K rows, each rows is at best larger as the originalString ( no delimiter at all )
+    char **res = (char **)malloc(k + 1 * sizeof(char *));
+    for (int i = 0; i < k + 1; i++)
+        res[i] = (char *)malloc(strlen(x) * sizeof(char));
+
+    //Get a substring of the original string each time with strtok, and store it in the 2D array
+    int i = 0;
+    char *token = strtok(x, " ");
+
+    while (k > 0)
+    {
+        if (token == NULL)
+        {
+            i++;
+            k--;
+            continue;
+        }
+        strcpy(res[i], token);
+        token = strtok(NULL, " ");
+        i++;
+        k--;
+    }
+    free(x);
+
+    return res;
 }
 
+int receiveNumberL(int sockfd, unsigned long int *number)
+{
+
+    char numberStr[64];
+    memset(numberStr, 0, 64);
+    recv(sockfd, numberStr, 64, 0);
+    *number = strtoul(numberStr, NULL, 10);
+    return 1;
+}
+
+int sendNumberL(int sockfd, unsigned long int number)
+{
+
+    char numberStr[64];
+    memset(numberStr, 0, 64);
+    sprintf(numberStr, "%lu", number);
+    send(sockfd, numberStr, 64, 0);
+    return 1;
+}

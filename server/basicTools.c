@@ -1,12 +1,9 @@
 #include <stdio.h>
-#include <netdb.h>
-#include <netinet/in.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <sys/types.h>
 #include <time.h>
-#include <pthread.h>
+#include <winsock2.h>
 
 #include "basicTools.h"
 
@@ -22,6 +19,18 @@ unsigned long int generateToken(const char *passphrase)
     return hash;
 }
 
+int checkDirectory(char *dir)
+{
+    FILE *file;
+    if ((file = fopen(dir, "w")))
+        fclose(file);
+    else
+    {
+        return 0;
+    }
+    return 1;
+}
+
 //Return a random value
 unsigned long int getRandom()
 {
@@ -34,6 +43,7 @@ char *subString(char *input, int indexstart, int indexend)
 {
     char *start = input + indexstart;
     char *substring = malloc(indexend - indexstart + 1);
+    memset(substring, 0, indexend - indexstart + 1);
     memcpy(substring, start, indexend);
     return substring;
 }
@@ -54,10 +64,14 @@ int is_a_number(char *input)
 char **splitString(char *originalString, int *finalSize)
 {
 
+    char *x = malloc(strlen(originalString) + 1);
+    strcpy(x, originalString);
+    strcat(x, "\0");
+
     //Calculate how many words would be created
     int k = 0;
-    for (int z = 0; z < strlen(originalString); z++)
-        if (isspace(originalString[z]))
+    for (int z = 0; z < strlen(x); z++)
+        if (isspace(x[z]))
             k++;
     k++;
     *finalSize = k;
@@ -65,25 +79,32 @@ char **splitString(char *originalString, int *finalSize)
     //Creating a bidimensional array with K rows, each rows is at best larger as the originalString ( no delimiter at all )
     char **res = (char **)malloc(k + 1 * sizeof(char *));
     for (int i = 0; i < k + 1; i++)
-        res[i] = (char *)malloc(strlen(originalString) * sizeof(char));
-
-    //if(!k) return res;
+        res[i] = (char *)malloc(strlen(x) * sizeof(char));
 
     //Get a substring of the original string each time with strtok, and store it in the 2D array
     int i = 0;
-    char *token = strtok(originalString, " ");
+    char *token = strtok(x, " ");
+
     while (k > 0)
     {
-        res[i] = token;
+        if (token == NULL)
+        {
+            i++;
+            k--;
+            continue;
+        }
+        strcpy(res[i], token);
         token = strtok(NULL, " ");
         i++;
         k--;
     }
+    free(x);
+
     return res;
 }
 
 //Write to log thread_id, client_ip, client_port, type of request and timestamp
-void writeToLog(char *type, char **client_info, pid_t pid, pthread_t tid, pthread_mutex_t lock)
+void writeToLog(char *type, char **client_info, DWORD tid, CRITICAL_SECTION lock)
 {
     //Get the lock for write on the file
     char *logpath = client_info[2];
@@ -109,8 +130,8 @@ void writeToLog(char *type, char **client_info, pid_t pid, pthread_t tid, pthrea
     strcat(row, time_s);
     strcat(row, "\n");
 
-    //Get the lock on the file
-    pthread_mutex_lock(&lock);
+    //Get the lock on the file, entering the critical section
+    EnterCriticalSection(&lock);
 
     //Write down the log onto the file
     FILE *f = fopen(logpath, "a");
@@ -124,5 +145,65 @@ void writeToLog(char *type, char **client_info, pid_t pid, pthread_t tid, pthrea
     fclose(f);
     free(row);
 
-    pthread_mutex_unlock(&lock);
+    LeaveCriticalSection(&lock);
+}
+
+int readConfig(int *port, int *max_thread, char *path)
+{
+    char buff[256];
+    FILE *f = fopen(path, "r");
+
+    if (f == NULL)
+    {
+        perror("Error");
+    }
+    while (fgets(buff, 256, f) != NULL)
+    {
+        char **row;
+        int rowSize = 0;
+        row = splitString(buff, &rowSize);
+        if (rowSize >= 3)
+        {
+            if (strcmp(row[0], "TCP_PORT") == 0)
+            {
+                if (atoi(row[2]) > 0)
+                    *port = atoi(row[2]);
+            }
+            else if (strcmp(row[0], "MAX_THREAD") == 0)
+            {
+                if (atoi(row[2]) > 0)
+                    *max_thread = atoi(row[2]);
+            }
+        }
+        else
+        {
+            puts("Config file format wrong.");
+            return 0;
+        }
+
+        memset(buff, 0, 256);
+    }
+
+    fclose(f);
+    return 1;
+}
+
+int receiveNumberL(int sockfd, unsigned long int *number)
+{
+
+    char numberStr[64];
+    memset(numberStr, 0, 64);
+    recv(sockfd, numberStr, 64, 0);
+    *number = strtoul(numberStr, NULL, 10);
+    return 1;
+}
+
+int sendNumberL(int sockfd, unsigned long int number)
+{
+
+    char numberStr[64];
+    memset(numberStr, 0, 64);
+    sprintf(numberStr, "%lu", number);
+    send(sockfd, numberStr, 64, 0);
+    return 1;
 }
