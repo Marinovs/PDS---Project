@@ -12,7 +12,6 @@
 static void *threadpool_thread(void *threadpool);
 int threadpool_free(threadpool_t *pool);
 
-
 threadpool_t *threadpool_create(int thread_count, int queue_size, int flags)
 {
 
@@ -136,8 +135,9 @@ int threadpool_add(threadpool_t *pool, void (*function)(void *), void *argument,
     } while (0);
 
     /* Release mutex resources */
-    if (pthread_mutex_unlock(&pool->lock) != 0) err = threadpool_lock_failure;
-    
+    if (pthread_mutex_unlock(&pool->lock) != 0)
+        err = threadpool_lock_failure;
+
     return err;
 }
 
@@ -162,6 +162,7 @@ int threadpool_destroy(threadpool_t *pool, int flags)
         /* Determine whether it has been closed elsewhere */
         if (pool->shutdown)
         {
+
             err = threadpool_shutdown;
             break;
         }
@@ -171,9 +172,11 @@ int threadpool_destroy(threadpool_t *pool, int flags)
 
         /* Wake up all worker threads */
         /* Wake up all threads blocked by dependent variables and release mutexes */
+
         if ((pthread_cond_broadcast(&(pool->notify)) != 0) ||
             (pthread_mutex_unlock(&(pool->lock)) != 0))
         {
+
             err = threadpool_lock_failure;
             break;
         }
@@ -184,6 +187,7 @@ int threadpool_destroy(threadpool_t *pool, int flags)
         {
             if (pthread_join(pool->threads[i], NULL) != 0)
             {
+
                 err = threadpool_thread_failure;
             }
         }
@@ -192,6 +196,7 @@ int threadpool_destroy(threadpool_t *pool, int flags)
     if (!err)
     {
         /* Release memory resources */
+
         threadpool_free(pool);
     }
     return err;
@@ -214,9 +219,10 @@ int threadpool_free(threadpool_t *pool)
         pthread_mutex_destroy(&(pool->lock));
         pthread_mutex_lock(&(pool->logLock));
         pthread_mutex_destroy(&(pool->logLock));
-        
+
         pthread_cond_destroy(&(pool->notify));
     }
+
     free(pool);
     return 0;
 }
@@ -226,11 +232,10 @@ static void *threadpool_thread(void *threadpool)
     threadpool_t *pool = (threadpool_t *)threadpool;
     threadpool_task_t task;
 
-    while(1)
+    while (1)
     {
         /* Get mutex resources */
         pthread_mutex_lock(&(pool->lock));
-
 
         while ((pool->count == 0) && (!pool->shutdown))
         {
@@ -266,9 +271,11 @@ static void *threadpool_thread(void *threadpool)
     }
 
     /* Threads will end, update the number of running threads */
+
     pool->started--;
 
     pthread_mutex_unlock(&(pool->lock));
+
     pthread_exit(NULL);
     return (NULL);
 }
