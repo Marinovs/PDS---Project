@@ -1,10 +1,9 @@
 #include <stdio.h>
-#include <netdb.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-#include <netinet/in.h>
-#include <stdlib.h>
-#include <sys/socket.h>
+#include <math.h>
+#include <winsock2.h>
 
 #include "basicTools.h"
 
@@ -55,7 +54,6 @@ unsigned long int createToken(char *passphrase)
     finalHash ^= generateToken(subString(passphrase, pass * chunk, (pass * chunk) + reminder));
     return finalHash;
 }
-
 //Return a random value
 unsigned long int getRandom()
 {
@@ -99,6 +97,7 @@ char **splitString(char *originalString, int *finalSize)
     //Get a substring of the original string each time with strtok, and store it in the 2D array
     int i = 0;
     char *token = strtok(x, " ");
+
     while (k > 0)
     {
         if (token == NULL)
@@ -113,6 +112,7 @@ char **splitString(char *originalString, int *finalSize)
         k--;
     }
     free(x);
+
     return res;
 }
 

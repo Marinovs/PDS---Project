@@ -1,17 +1,14 @@
-#define _XOPEN_SOURCE 700
+#define WINVER 0x600
+#define _WIN32_WINNT 0x600
+
 #include <stdio.h>
-#include <netdb.h>
-#include <netinet/in.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
+#include <winsock2.h>
 #include <errno.h>
-#include <pthread.h>
+#include <windows.h>
 #include <unistd.h>
-#include <arpa/inet.h>
 #include <math.h>
-#include <signal.h>
-#include <fcntl.h>
 
 #include <sys/types.h>
 #include <dirent.h>
@@ -27,8 +24,6 @@
 #define DEFAULT_TCP_PORT 8888
 #define DEFAULT_LOG_PATH "tmp/server.log"
 
-int isRestarted = 0;
-
 typedef struct threadArgs
 {
     int sock;
@@ -37,32 +32,21 @@ typedef struct threadArgs
     threadpool_t *pool;
 };
 
-void handle_sighup(int signal)
+struct threadpool_t
 {
-
-    if (signal == SIGHUP)
-    {
-        puts("SIGHUP RECEIVED");
-        isRestarted = 1;
-    }
-}
-
-void reloadServer()
-{
-    struct sigaction sa;
-
-    // Setup the sighub handler
-    sa.sa_handler = &handle_sighup;
-
-    // Block every signal during the handler
-    sigfillset(&sa.sa_mask);
-
-    // Intercept SIGHUP and SIGINT
-    if (sigaction(SIGHUP, &sa, NULL) == -1)
-    {
-        perror("Error: cannot handle SIGHUP"); // Should not happen
-    }
-}
+    SRWLOCK lock;              /* mutex for the thread tasks*/
+    CRITICAL_SECTION logLock;  /* critical section for the log file*/
+    CONDITION_VARIABLE notify; /* Conditional variable */
+    HANDLE *threads;           /* Starting Pointer of Thread Array */
+    threadpool_task_t *queue;  /* Starting Pointer of Task Queue Array */
+    int thread_count;          /* Number of threads */
+    int queue_size;            /* Task queue length */
+    int head;                  /* Current task queue head */
+    int tail;                  /* End of current task queue */
+    int count;                 /* Number of tasks currently to be run */
+    int shutdown;              /* Is the current state of the thread pool closed? */
+    int started;               /* Number of threads running */
+};
 
 //Send 400 through the socker
 int sendResponse(int sockfd, int response)
@@ -79,26 +63,6 @@ int sendStatus(int sockfd, int status)
     if (status == 0)
         return 1;
 
-    if (status == -1)
-    {
-        perror("pclose");
-    }
-    else if (WIFSIGNALED(status))
-    {
-        response = WTERMSIG(status);
-        printf("terminating signal: %d\n", WTERMSIG(status));
-    }
-    else if (WIFEXITED(status))
-    {
-        response = WEXITSTATUS(status);
-        printf("exit with status: %d\n", WEXITSTATUS(status));
-    }
-    else
-    {
-        response = -1;
-        printf("unexpected: %d\n", status);
-    }
-
     sprintf(responseC, "An error occurred during the execution ( %d )\n", response);
     return send(sockfd, responseC, strlen(responseC), 0);
 }
@@ -110,11 +74,13 @@ void *handleConnection(void *p_args)
     threadpool_t *pool = (threadpool_t *)args->pool;
     unsigned long int T_s = args->T_s;
     int sockfd = args->sock;
-    pthread_t tid;
+    DWORD tid = GetCurrentThreadId();
     char buff[COMMUNICATION_BUF_SIZE];
 
-    char **commandAr;
+    char *command, **commandAr;
     int comSize = 0;
+
+    printf("thread %li is handling the request\n", tid);
 
     //Prepare server to begin the auth phase
     int response_code = handleAuth(T_s, sockfd);
@@ -123,7 +89,7 @@ void *handleConnection(void *p_args)
     if (response_code == 400)
     {
         printf("authentication has failed\n");
-        close(sockfd);
+        closesocket(sockfd);
         free(args->client_info);
         return;
     }
@@ -131,7 +97,6 @@ void *handleConnection(void *p_args)
     printf("authentication has succeded\n");
     do
     {
-        char *command;
         printf("\nListening for command...\n");
 
         //Getting the command, if no command is sent, close the connection
@@ -139,26 +104,24 @@ void *handleConnection(void *p_args)
 
         int reader = recv(sockfd, buff, COMMUNICATION_BUF_SIZE, 0);
 
-        puts(buff);
+        printf("User sent: %s\n", buff);
 
         if (reader <= 0)
         {
             sendResponse(sockfd, 400);
-            close(sockfd);
+            closesocket(sockfd);
             free(args->client_info);
             return;
         }
         else
-        {
             command = subString(buff, 0, reader);
-        }
+
+        printf("User sent: %s\n", command);
 
         commandAr = splitString(command, &comSize);
-
         if (comSize >= 2)
         {
-            // send INTO THE LOG
-            tid = pthread_self();
+            // WRITE INTO THE LOG
             writeToLog(commandAr[0], args->client_info, tid, (pool->logLock));
 
             //Set-up the right comunication protocol
@@ -210,20 +173,20 @@ void *handleConnection(void *p_args)
             sendResponse(sockfd, 400);
             break;
         }
-        free(command);
-        free(commandAr);
+
     } while (1);
 
     printf("THREAD : %lu ending listening\n", tid);
 
+    free(commandAr);
     free(args->client_info);
-    close(sockfd);
+    closesocket(sockfd);
 }
 
 //Function that handle the authentication phases ( AUTH )
 int handleAuth(unsigned long int T_s, int sockfd)
 {
-    char buff[COMMUNICATION_BUF_SIZE];
+    char *buff = calloc(0, COMMUNICATION_BUF_SIZE);
     int response_code = 400;
 
     //Waiting for client to send the HELO request to init the Authentication phase
@@ -244,17 +207,24 @@ int handleAuth(unsigned long int T_s, int sockfd)
         sendNumberL(sockfd, response);
 
         //Wait for the client to begin the AUTH phase
-        recv(sockfd, buff, MAX, 0);
+        recv(sockfd, buff, COMMUNICATION_BUF_SIZE, 0);
 
         if (strcmp("AUTH", buff) == 0)
         {
             unsigned long int enc1, enc2, T_c_i, received_challenge;
+
             receiveNumberL(sockfd, &enc1);
             receiveNumberL(sockfd, &enc2);
+
+            printf("\n-----AUTH INFO-----\nENC1: %lu\nENC2: %lu\n\n", enc1, enc2);
 
             //Calculate the client key with his key
             T_c_i = enc1 ^ T_s ^ challenge;
             received_challenge = T_c_i ^ enc2;
+
+
+            printf("T_S: %lu\nT_C_I: %lu\n\n", T_s, T_c_i);
+            printf("RECEIVED_CHALLENGE: %lu\nCHALLENGE: %lu\n\n", received_challenge, challenge);
 
             //If the challenge is correct, the authentication is complete
             if (received_challenge == challenge)
@@ -289,7 +259,7 @@ int handleExec(int sockfd, char **commandArr, int size)
     }
 
     //Executing the command
-    FILE *f = popen(command, "r");
+    FILE *f = _popen(command, "r");
     if (f != NULL)
     {
         //Prepare client for receive the output
@@ -303,7 +273,7 @@ int handleExec(int sockfd, char **commandArr, int size)
             if (fgets(buff, COMMUNICATION_BUF_SIZE, f) == NULL)
             {
                 //send the exit status in needed
-                sendStatus(sockfd, pclose(f));
+                sendStatus(sockfd, _pclose(f));
 
                 //End comunication
                 char *endOfOut = "\r\n.\r\n";
@@ -323,7 +293,7 @@ int handleExec(int sockfd, char **commandArr, int size)
     {
         int err = errno;
         printf("error during the command execution - %d \n", err);
-        send(sockfd, err, strlen(err), 0);
+        sendNumberL(sockfd, err);
     }
     free(command);
     return 1;
@@ -360,12 +330,12 @@ int handleLSF(int sockfd, char **commandArr, int size)
                 continue;
 
             //If the entry is a dir
-            if (entry->d_type == 4)
+            if (entry->d_type == DT_DIR)
             {
                 strcat(result, "DIR ");
             }
             //if the entry is a file, get the size
-            else if (entry->d_type == 8)
+            else if (entry->d_type == DT_REG)
             {
 
                 f = fopen(name, "r");
@@ -435,7 +405,8 @@ int handleSize(int sockfd, char **commandArr, int size)
         fclose(f);
 
         printf("Sending: %li bytes\n", file_size);
-        sendNumberL(sockfd, &file_size);
+        sendNumberL(sockfd, file_size);
+
         printf("communication ended\n");
     }
     else
@@ -501,10 +472,9 @@ int handleUpload(int sockfd, char **commandArr, int size)
 {
     printf("handling Upload\n");
 
-    unsigned long int file_size = strtol(commandArr[2], NULL, 10);
-
     char *buff = (char *)malloc(COMMUNICATION_BUF_SIZE + 1);
     char *path_src = malloc(strlen(commandArr[1]));
+    unsigned long int file_size = strtol(commandArr[2], NULL, 10);
 
     memset(path_src, 0, strlen(path_src));
     memset(buff, 0, COMMUNICATION_BUF_SIZE + 1);
@@ -518,7 +488,7 @@ int handleUpload(int sockfd, char **commandArr, int size)
 
         /* ___SENDING DATA___ */
 
-        /* int chunks = floor(file_size / COMMUNICATION_BUF_SIZE);
+        int chunks = floor(file_size / COMMUNICATION_BUF_SIZE);
         int remainder = file_size % COMMUNICATION_BUF_SIZE;
 
         //Sending the 512 bytes 8 maximum ) chunks
@@ -537,24 +507,7 @@ int handleUpload(int sockfd, char **commandArr, int size)
             fread(buff, remainder, 1, f);
             strcat(buff, "\0");
             send(sockfd, buff, strlen(buff), 0);
-        } */
-
-        //Sending the file
-        int sz = 0;
-        memset(buff, 0, COMMUNICATION_BUF_SIZE + 1);
-        while ((sz = fread(buff, COMMUNICATION_BUF_SIZE, 1, f)) > -1)
-        {
-            strcat(buff, "\0");
-            //send the chunk to the server
-            send(sockfd, buff, strlen(buff), 0);
-
-            //If it didn't read all BUF SIZE bytes, the eof has come
-            if (sz != 1)
-                break;
-
-            memset(buff, 0, COMMUNICATION_BUF_SIZE + 1);
         }
-
         fclose(f);
     }
     free(buff);
@@ -564,13 +517,14 @@ int handleUpload(int sockfd, char **commandArr, int size)
 int main(int argc, char *argv[])
 {
     int sockfd, client_sock, len, max_thread = MAX_THREADS, port = DEFAULT_TCP_PORT, print_token;
-    char *config_path, *log_path = DEFAULT_LOG_PATH, client_ip[12], client_port[6];
+    char *config_path = calloc(0, 256), *log_path = DEFAULT_LOG_PATH, client_ip[12], client_port[6];
+
     char passphrase[256];
     unsigned long int T_s;
+
     struct sockaddr_in servaddr, cli;
     threadpool_t *pool;
-
-    printf("Process started with pid %d\n", getpid());
+    WSADATA wsa;
 
     //Parsing args
     if (argc > 1)
@@ -620,18 +574,25 @@ int main(int argc, char *argv[])
     if (print_token == 1)
         printf("\nServer generates token T_s: %lu\n\n", T_s);
 
-startup:
-    isRestarted = 0;
+    //Read the config file, if specified and valid
     if (config_path != NULL && strlen(config_path) > 0 && checkDirectory(config_path))
     {
-        //printf("Config file found: %s, reading...\n", config_path);
+        printf("Config file found: %s, reading...\n", config_path);
         readConfig(&port, &max_thread, config_path);
     }
 
     //THREAD POOL GENERATION
     printf("Creation of %i threads...\n", max_thread);
     pool = threadpool_create(max_thread, 256, 0);
-    //END OF POOL GENERATION
+
+    //_______SOCKET________
+
+    //Windows socket initialization
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
+    {
+        printf("Initialization has failed : %d", WSAGetLastError());
+        exit(0);
+    }
 
     // socket create and verification
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -641,22 +602,14 @@ startup:
         exit(0);
     }
     else
-        printf("Socket successfully created...\n");
+        printf("Socket successfully created..\n");
 
     memset(&servaddr, 0, sizeof(servaddr));
 
     // assign IP, PORT
     servaddr.sin_family = AF_INET;
     servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    servaddr.sin_port = htons(port);
-
-    printf("SERVER PORT IS : %d\n", ntohs(servaddr.sin_port));
-
-    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &isRestarted, sizeof(int)) < 0)
-        error("setsockopt(SO_REUSEADDR) failed");
-
-    //set socked not blocking
-    fcntl(sockfd, F_SETFL, O_NONBLOCK);
+    servaddr.sin_port = htons(DEFAULT_TCP_PORT);
 
     // Binding newly created socket to given IP and verification
     if ((bind(sockfd, (SA *)&servaddr, sizeof(servaddr))) != 0)
@@ -678,46 +631,35 @@ startup:
 
     len = sizeof(cli);
 
-    reloadServer();
     // Accept the data packet from client and verification
-    while (1)
+    while ((client_sock = accept(sockfd, (SA *)&cli, &len)))
     {
+        printf("\n\nNew user connected, assigne the task the the threads...\n");
 
-        if ((client_sock = accept(sockfd, (SA *)&cli, &len)) > 0)
+        // Getting client ip and client port
+        strcpy(client_ip, inet_ntoa(cli.sin_addr));
+        sprintf(client_port, "%u", ntohs(cli.sin_port));
+
+        struct threadArgs p_args;
+
+        p_args.sock = client_sock;
+        p_args.T_s = T_s;
+        p_args.client_info = malloc(strlen(client_ip) * strlen(client_port));
+
+        p_args.client_info[0] = client_ip;
+        p_args.client_info[1] = client_port;
+        p_args.client_info[2] = log_path;
+        p_args.pool = pool;
+
+        if (!threadpool_add(pool, &handleConnection, &p_args, 0) == 0)
         {
-
-            printf("\n\nNew user connected, spawning a thread...\n");
-
-            // Getting client ip and client port
-            strcpy(client_ip, inet_ntoa(cli.sin_addr));
-            sprintf(client_port, "%u", ntohs(cli.sin_port));
-
-            struct threadArgs p_args;
-
-            p_args.sock = client_sock;
-            p_args.T_s = T_s;
-            p_args.client_info = malloc(strlen(client_ip) * strlen(client_port));
-
-            p_args.client_info[0] = client_ip;
-            p_args.client_info[1] = client_port;
-            p_args.client_info[2] = log_path;
-            p_args.pool = pool;
-
-            if (!threadpool_add(pool, &handleConnection, &p_args, 0) == 0)
-            {
-                perror("could not add the task");
-                return 1;
-            }
-        }
-
-        if (isRestarted)
-        {
-            //threadpool_destroy(pool, 0);
-            close(client_sock);
-            close(sockfd);
-            goto startup;
+            perror("could not add the task ");
+            closesocket(sockfd);
+            WSACleanup();
+            return 1;
         }
     }
-
-    close(sockfd);
+    threadpool_destroy(pool, 0);
+    closesocket(sockfd);
+    return 0;
 }

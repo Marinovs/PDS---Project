@@ -1,13 +1,10 @@
 #include <stdio.h>
-#include <netdb.h>
-#include <netinet/in.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
 #include <sys/types.h>
 #include <time.h>
-#include <pthread.h>
-#include <signal.h>
+#include <winsock2.h>
+#include <math.h>
 
 #include "basicTools.h"
 
@@ -62,7 +59,7 @@ unsigned long int createToken(char *passphrase)
 int checkDirectory(char *dir)
 {
     FILE *file;
-    if ((file = fopen(dir, "r")))
+    if ((file = fopen(dir, "w")))
         fclose(file);
     else
     {
@@ -114,6 +111,7 @@ char **splitString(char *originalString, int *finalSize)
     //Get a substring of the original string each time with strtok, and store it in the 2D array
     int i = 0;
     char *token = strtok(x, " ");
+
     while (k > 0)
     {
         if (token == NULL)
@@ -128,11 +126,12 @@ char **splitString(char *originalString, int *finalSize)
         k--;
     }
     free(x);
+
     return res;
 }
 
 //Write to log thread_id, client_ip, client_port, type of request and timestamp
-void writeToLog(char *type, char **client_info, pthread_t tid, pthread_mutex_t lock)
+void writeToLog(char *type, char **client_info, DWORD tid, CRITICAL_SECTION lock)
 {
     //Get the lock for write on the file
     char *logpath = client_info[2];
@@ -158,8 +157,8 @@ void writeToLog(char *type, char **client_info, pthread_t tid, pthread_mutex_t l
     strcat(row, time_s);
     strcat(row, "\n");
 
-    //Get the lock on the file
-    pthread_mutex_lock(&lock);
+    //Get the lock on the file, entering the critical section
+    EnterCriticalSection(&lock);
 
     //Write down the log onto the file
     FILE *f = fopen(logpath, "a");
@@ -173,10 +172,9 @@ void writeToLog(char *type, char **client_info, pthread_t tid, pthread_mutex_t l
     fclose(f);
     free(row);
 
-    pthread_mutex_unlock(&lock);
+    LeaveCriticalSection(&lock);
 }
 
-//Read the file config
 int readConfig(int *port, int *max_thread, char *path)
 {
     char buff[256];
@@ -210,7 +208,7 @@ int readConfig(int *port, int *max_thread, char *path)
             return 0;
         }
 
-        bzero(buff, 256);
+        memset(buff, 0, 256);
     }
 
     fclose(f);

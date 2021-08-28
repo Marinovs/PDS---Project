@@ -1,28 +1,25 @@
 #include <stdio.h>
-#include <netdb.h>
-#include <netinet/in.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
+#include <winsock2.h>
 #include <sys/types.h>
 
 #include "basicTools.h"
 
 #define MAX 256
-#define COMMUNICATION_BUF_SIZE 10512
+#define COMMUNICATION_BUF_SIZE 512
 #define SA struct sockaddr
 
 // Function designed for chat between client and server.
 void comunicate(int sockfd, unsigned long int T_c_i, unsigned long int T_s, char *command)
 {
-    char buff[MAX];
     int response_auth = beginAuth(sockfd, T_c_i, T_s);
 
     //Check if the authentication succeeded
     if (response_auth != 200)
     {
         printf("Authentication failed\n");
-        close(sockfd);
+        closesocket(sockfd);
         return;
     }
     else
@@ -32,7 +29,7 @@ void comunicate(int sockfd, unsigned long int T_c_i, unsigned long int T_s, char
     if (strcmp(command, "NONE") == 0)
     {
         printf("no command is specified, ending...\n");
-        close(sockfd);
+        closesocket(sockfd);
         return;
     }
     else
@@ -42,7 +39,7 @@ void comunicate(int sockfd, unsigned long int T_c_i, unsigned long int T_s, char
 //Function that handle the client side of the auth protocol
 int beginAuth(int sockfd, unsigned long int T_c_i, unsigned long int T_s)
 {
-    char buff[MAX];
+    char *buff = calloc(0, MAX);
     unsigned long int received_challenge, challenge_response, enc1, enc2;
     int response_code = 0;
 
@@ -54,14 +51,16 @@ int beginAuth(int sockfd, unsigned long int T_c_i, unsigned long int T_s)
     memset(buff, 0, strlen(buff) + 1);
 
     receiveNumberL(sockfd, &response_code);
+    receiveNumberL(sockfd, &received_challenge);
+    printf("resp: %d\n", response_code);
+
 
     if (response_code != 300)
         return;
 
     //Get the challenge
-    receiveNumberL(sockfd, &received_challenge);
 
-    printf("Received response from server %d\n", response_code);
+    printf("Received response from server %lu\n", response_code);
     printf("Received challenge from server\n");
 
     //Extract the challenge using T_s and calculate enc1 and enc2
@@ -69,6 +68,10 @@ int beginAuth(int sockfd, unsigned long int T_c_i, unsigned long int T_s)
 
     enc1 = T_s ^ challenge_response ^ T_c_i;
     enc2 = T_c_i ^ challenge_response;
+
+    printf("\n-----AUTH INFO-----\nENC1: %lu\nENC2: %lu\n\n", enc1, enc2);
+    printf("T_S: %lu\nT_C_I: %lu\n\n", T_s, T_c_i);
+    printf("RECEIVED_CHALLENGE: %lu\nCHALLENGE_RESPONSE: %lu\n\n", received_challenge, challenge_response);
 
     //Send the challenge back to the server and wait for the results
     sprintf(buff, "AUTH");
@@ -78,7 +81,7 @@ int beginAuth(int sockfd, unsigned long int T_c_i, unsigned long int T_s)
     sendNumberL(sockfd, enc2);
 
     receiveNumberL(sockfd, &response_code);
-    printf("Receiver response from server %d\n", response_code);
+    printf("Received response from server %d\n", response_code);
     return response_code;
 }
 
@@ -123,7 +126,7 @@ int beginCommand(int sockfd, char *command)
     }
 
     free(commandAr);
-    close(sockfd);
+    closesocket(sockfd);
     return 1;
 }
 
@@ -232,7 +235,7 @@ int downloadC(int sockfd, char **commandArr, int arSize)
     int response_code;
     char *path_src = malloc(strlen(commandArr[1]));
     char *path_dest = malloc(strlen(commandArr[2]));
-    char *buff = (char *)malloc(COMMUNICATION_BUF_SIZE);
+    char *buff = (char *)malloc(COMMUNICATION_BUF_SIZE + 1);
     char *command = malloc(512);
 
     memset(path_dest, 0, sizeof(path_dest));
@@ -316,7 +319,7 @@ int uploadC(int sockfd, char **commandArr, int arSize)
     char *path_src = malloc(strlen(commandArr[1]));
     char *path_dest = malloc(strlen(commandArr[2]));
     char *command = malloc(512);
-    char *buff = malloc(COMMUNICATION_BUF_SIZE);
+    char *buff = malloc(COMMUNICATION_BUF_SIZE + 1);
 
     memset(path_dest, 0, strlen(commandArr[1]));
     memset(path_src, 0, strlen(commandArr[2]));
@@ -392,6 +395,7 @@ int main(int argc, char *argv[])
     char client_passphrase[256], server_passphrase[256], *server_address = "0.0.0.0", *command = malloc(512);
     unsigned long int T_c_i, T_s;
     struct sockaddr_in servaddr, cli;
+    WSADATA wsa;
 
     memset(command, 0, 512);
     strcat(command, "");
@@ -477,6 +481,15 @@ int main(int argc, char *argv[])
     //generation of server token
     T_s = createToken(server_passphrase);
 
+    //_______SOCKET________
+
+    //Windows socket initialization
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
+    {
+        printf("Initialization has failed : %d", WSAGetLastError());
+        exit(0);
+    }
+
     // socket create and varification
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd == -1)
@@ -506,5 +519,6 @@ int main(int argc, char *argv[])
     comunicate(sockfd, T_c_i, T_s, command);
 
     // close the socket
-    close(sockfd);
+    closesocket(sockfd);
+    WSACleanup();
 }
