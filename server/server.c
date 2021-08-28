@@ -80,7 +80,7 @@ void *handleConnection(void *p_args)
     char *command, **commandAr;
     int comSize = 0;
 
-    printf("thread %li is handling the request\n", tid);
+    printf("\nTHREAD %li is handling the request\n\n", tid);
 
     //Prepare server to begin the auth phase
     int response_code = handleAuth(T_s, sockfd);
@@ -103,8 +103,6 @@ void *handleConnection(void *p_args)
         memset(buff, 0, COMMUNICATION_BUF_SIZE);
 
         int reader = recv(sockfd, buff, COMMUNICATION_BUF_SIZE, 0);
-
-        printf("User sent: %s\n", buff);
 
         if (reader <= 0)
         {
@@ -178,7 +176,6 @@ void *handleConnection(void *p_args)
 
     printf("THREAD : %lu ending listening\n", tid);
 
-    free(commandAr);
     free(args->client_info);
     closesocket(sockfd);
 }
@@ -216,15 +213,9 @@ int handleAuth(unsigned long int T_s, int sockfd)
             receiveNumberL(sockfd, &enc1);
             receiveNumberL(sockfd, &enc2);
 
-            printf("\n-----AUTH INFO-----\nENC1: %lu\nENC2: %lu\n\n", enc1, enc2);
-
             //Calculate the client key with his key
             T_c_i = enc1 ^ T_s ^ challenge;
             received_challenge = T_c_i ^ enc2;
-
-
-            printf("T_S: %lu\nT_C_I: %lu\n\n", T_s, T_c_i);
-            printf("RECEIVED_CHALLENGE: %lu\nCHALLENGE: %lu\n\n", received_challenge, challenge);
 
             //If the challenge is correct, the authentication is complete
             if (received_challenge == challenge)
@@ -246,9 +237,8 @@ int handleExec(int sockfd, char **commandArr, int size)
 {
     printf("handling Exec\n");
 
-    char *command = malloc(256);
+    char *command = calloc(0, 256);
     char buff[COMMUNICATION_BUF_SIZE];
-    memset(command, 0, 256);
 
     //Composing the command with the args
     strcat(command, commandArr[1]);
@@ -257,7 +247,7 @@ int handleExec(int sockfd, char **commandArr, int size)
         strcat(command, " ");
         strcat(command, commandArr[i]);
     }
-
+    
     //Executing the command
     FILE *f = _popen(command, "r");
     if (f != NULL)
@@ -295,7 +285,6 @@ int handleExec(int sockfd, char **commandArr, int size)
         printf("error during the command execution - %d \n", err);
         sendNumberL(sockfd, err);
     }
-    free(command);
     return 1;
 }
 
@@ -644,16 +633,19 @@ int main(int argc, char *argv[])
 
         p_args.sock = client_sock;
         p_args.T_s = T_s;
-        p_args.client_info = malloc(strlen(client_ip) * strlen(client_port));
+        p_args.pool = pool;
+        
+        
+        p_args.client_info = malloc(1024);
 
         p_args.client_info[0] = client_ip;
         p_args.client_info[1] = client_port;
         p_args.client_info[2] = log_path;
-        p_args.pool = pool;
 
+ 
         if (!threadpool_add(pool, &handleConnection, &p_args, 0) == 0)
         {
-            perror("could not add the task ");
+            printf("could not add the task ");
             closesocket(sockfd);
             WSACleanup();
             return 1;

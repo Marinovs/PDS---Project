@@ -51,7 +51,6 @@ int beginAuth(int sockfd, unsigned long int T_c_i, unsigned long int T_s)
     memset(buff, 0, strlen(buff) + 1);
 
     receiveNumberL(sockfd, &response_code);
-    receiveNumberL(sockfd, &received_challenge);
     printf("resp: %d\n", response_code);
 
 
@@ -59,9 +58,7 @@ int beginAuth(int sockfd, unsigned long int T_c_i, unsigned long int T_s)
         return;
 
     //Get the challenge
-
-    printf("Received response from server %lu\n", response_code);
-    printf("Received challenge from server\n");
+    receiveNumberL(sockfd, &received_challenge);
 
     //Extract the challenge using T_s and calculate enc1 and enc2
     challenge_response = received_challenge ^ T_s;
@@ -69,9 +66,6 @@ int beginAuth(int sockfd, unsigned long int T_c_i, unsigned long int T_s)
     enc1 = T_s ^ challenge_response ^ T_c_i;
     enc2 = T_c_i ^ challenge_response;
 
-    printf("\n-----AUTH INFO-----\nENC1: %lu\nENC2: %lu\n\n", enc1, enc2);
-    printf("T_S: %lu\nT_C_I: %lu\n\n", T_s, T_c_i);
-    printf("RECEIVED_CHALLENGE: %lu\nCHALLENGE_RESPONSE: %lu\n\n", received_challenge, challenge_response);
 
     //Send the challenge back to the server and wait for the results
     sprintf(buff, "AUTH");
