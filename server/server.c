@@ -615,7 +615,7 @@ int main(int argc, char *argv[])
     fgets(passphrase, sizeof(passphrase), stdin);
 
     //generation of token
-    T_s = generateToken(passphrase);
+    T_s = createToken(passphrase);
 
     if (print_token == 1)
         printf("\nServer generates token T_s: %lu\n\n", T_s);

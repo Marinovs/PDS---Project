@@ -468,14 +468,14 @@ int main(int argc, char *argv[])
     printf("Starting client...\nPlease insert a client passhprase: ");
     fgets(client_passphrase, sizeof(client_passphrase), stdin);
     //generation of client token
-    T_c_i = generateToken(client_passphrase);
+    T_c_i = createToken(client_passphrase);
 
     //asking user to insert server-passphrase
     printf("\nPlease insert the server passhprase: ");
     fgets(server_passphrase, sizeof(server_passphrase), stdin);
     printf("\n");
     //generation of server token
-    T_s = generateToken(server_passphrase);
+    T_s = createToken(server_passphrase);
 
     // socket create and varification
     sockfd = socket(AF_INET, SOCK_STREAM, 0);

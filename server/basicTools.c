@@ -12,15 +12,51 @@
 #include "basicTools.h"
 
 //Simple function for generating an hash token from a string
+char *subString(char *input, int indexstart, int indexend)
+{
+    char *start = input + indexstart;
+    char *substring = malloc(indexend - indexstart + 1);
+    memset(substring, 0, indexend - indexstart + 1);
+    memcpy(substring, start, indexend - indexstart);
+    strcat(substring, "\0");
+    return substring;
+}
+
+//Simple function for generating an hash token from a string
 unsigned long int generateToken(const char *passphrase)
 {
-    unsigned long int hash = 69681;
+    unsigned long int hash = 12;
     int c;
 
     while (c = *passphrase++)
-        hash = ((hash << 5) + hash) + c;
+    {
+        hash = hash << 2;
+        hash += hash;
+        hash + c;
+    }
 
     return hash;
+}
+
+unsigned long int createToken(char *passphrase)
+{
+    int chunk = 8;
+    int reminder = strlen(passphrase) % chunk;
+    int pass = floor(strlen(passphrase) / chunk);
+    unsigned long int finalHash = 1;
+
+    for (int i = 0; i < pass; i++)
+    {
+        int start = i * chunk;
+        int end = start + 8;
+        char *nextStr = subString(passphrase, start, end);
+        unsigned long int tmpHash = generateToken(nextStr);
+        finalHash ^= tmpHash;
+        finalHash += finalHash / strlen(passphrase);
+        printf("tmp hash is %lu finalHash is %lu nextStr was : %s\n", tmpHash , finalHash , nextStr);
+    }
+    finalHash ^= generateToken(subString(passphrase, pass * chunk, (pass * chunk) + reminder));
+    return finalHash;
 }
 
 int checkDirectory(char *dir)
@@ -40,16 +76,6 @@ unsigned long int getRandom()
 {
     srand(time(NULL));
     return (unsigned long int)rand();
-}
-
-//Return the substring between indexstart and indexend
-char *subString(char *input, int indexstart, int indexend)
-{
-    char *start = input + indexstart;
-    char *substring = malloc(indexend - indexstart + 2);
-    memcpy(substring, start, indexend);
-    strcat(substring, "\0");
-    return substring;
 }
 
 //Simple function for check if a string is a number
