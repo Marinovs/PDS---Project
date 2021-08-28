@@ -149,9 +149,9 @@ void *handleConnection(void *p_args)
             return;
         }
         else
-        {
             command = subString(buff, 0, reader);
-        }
+
+        printf("User sent : %s\n", command);
 
         commandAr = splitString(command, &comSize);
 
@@ -515,29 +515,6 @@ int handleUpload(int sockfd, char **commandArr, int size)
     if (f != NULL)
     {
         sendResponse(sockfd, 300);
-
-        /* ___SENDING DATA___ */
-
-        /* int chunks = floor(file_size / COMMUNICATION_BUF_SIZE);
-        int remainder = file_size % COMMUNICATION_BUF_SIZE;
-
-        //Sending the 512 bytes 8 maximum ) chunks
-        for (int i = 0; i < chunks; i++)
-        {
-            //Read the file, add the null terminator and send the buffer to the client
-            fread(buff, COMMUNICATION_BUF_SIZE, 1, f);
-            strcat(buff, "\0");
-            send(sockfd, buff, strlen(buff), 0);
-            memset(buff, 0, COMMUNICATION_BUF_SIZE + 1);
-        }
-
-        //Sending the remining bytes if needed
-        if (remainder != 0)
-        {
-            fread(buff, remainder, 1, f);
-            strcat(buff, "\0");
-            send(sockfd, buff, strlen(buff), 0);
-        } */
 
         //Sending the file
         int sz = 0;
