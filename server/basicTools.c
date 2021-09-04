@@ -53,7 +53,6 @@ unsigned long int createToken(char *passphrase)
         unsigned long int tmpHash = generateToken(nextStr);
         finalHash ^= tmpHash;
         finalHash += finalHash / strlen(passphrase);
-        printf("tmp hash is %lu finalHash is %lu nextStr was : %s\n", tmpHash , finalHash , nextStr);
     }
     finalHash ^= generateToken(subString(passphrase, pass * chunk, (pass * chunk) + reminder));
     return finalHash;

@@ -42,7 +42,7 @@ void handle_sighup(int signal)
 
     if (signal == SIGHUP)
     {
-        puts("SIGHUP RECEIVED");
+        printf("SIGHUP RECEIVED");
         isRestarted = 1;
     }
 }
@@ -138,8 +138,6 @@ void *handleConnection(void *p_args)
         memset(buff, 0, COMMUNICATION_BUF_SIZE);
 
         int reader = recv(sockfd, buff, COMMUNICATION_BUF_SIZE, 0);
-
-        puts(buff);
 
         if (reader <= 0)
         {
@@ -540,14 +538,50 @@ int handleUpload(int sockfd, char **commandArr, int size)
 
 int main(int argc, char *argv[])
 {
-    int sockfd, client_sock, len, max_thread = MAX_THREADS, port = DEFAULT_TCP_PORT, print_token;
+    int sockfd, client_sock, len, max_thread = MAX_THREADS, port = DEFAULT_TCP_PORT, print_token, forcePrint = 0;
     char *config_path, *log_path = DEFAULT_LOG_PATH, client_ip[12], client_port[6];
     char passphrase[256];
     unsigned long int T_s;
     struct sockaddr_in servaddr, cli;
     threadpool_t *pool;
 
-    printf("Process started with pid %d\n", getpid());
+    //asking user to insert passphrase
+    printf("Starting server...\nPlease insert a passhprase: ");
+    fgets(passphrase, sizeof(passphrase), stdin);
+    //generation of token
+    T_s = createToken(passphrase);
+
+    if (print_token == 1)
+        printf("\nServer generates token T_s: %lu\n\n", T_s);
+
+    //DEAMONIZATION PHASE
+    pid_t pid;
+    /* Fork off the parent process */
+    pid = fork();
+
+    if (pid < 0)
+        exit(EXIT_FAILURE);
+
+    /* Success: Let the parent terminate */
+    if (pid > 0)
+        exit(EXIT_SUCCESS);
+
+    /* On success: The child process becomes session leader */
+    if (setsid() < 0)
+        exit(EXIT_FAILURE);
+
+    /* Fork off for the second time*/
+    pid = fork();
+
+    /* An error occurred */
+    if (pid < 0)
+        exit(EXIT_FAILURE);
+
+    /* Success: Let the parent terminate */
+    if (pid > 0)
+        exit(EXIT_SUCCESS);
+
+    //END OF DEAMONIZATION PHASE
 
     //Parsing args
     if (argc > 1)
@@ -558,6 +592,10 @@ int main(int argc, char *argv[])
             {
                 if (is_a_number(argv[i + 1]) == 0)
                     port = atoi(argv[i + 1]);
+            }
+            if (strcmp("-fp", argv[i]) == 0)
+            {
+                forcePrint = 1;
             }
             if (strcmp("-n", argv[i]) == 0)
             {
@@ -587,15 +625,11 @@ int main(int argc, char *argv[])
         }
     }
 
-    //asking user to insert passphrase
-    printf("Starting server...\nPlease insert a passhprase: ");
-    fgets(passphrase, sizeof(passphrase), stdin);
-
-    //generation of token
-    T_s = createToken(passphrase);
-
-    if (print_token == 1)
-        printf("\nServer generates token T_s: %lu\n\n", T_s);
+    //If the user doesn't specifically request it, close the output to fully run the server as a daemon
+    if (forcePrint == 0)
+    {
+        fclose(stdout);
+    }
 
 startup:
     isRestarted = 0;
