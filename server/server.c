@@ -16,7 +16,7 @@
 #include <sys/types.h>
 #include <dirent.h>
 
-#include "basicTools.h"
+#include "../libs/basicTools.h"
 #include "threadPool.h"
 
 #define MAX 256
@@ -74,7 +74,7 @@ int sendResponse(int sockfd, int response)
 int sendStatus(int sockfd, int status)
 {
     int response = status;
-    char *responseC = calloc(0, 10);
+    char *responseC = myMalloc(0, 10, 0);
 
     if (status == 0)
         return 1;
@@ -100,7 +100,9 @@ int sendStatus(int sockfd, int status)
     }
 
     sprintf(responseC, "An error occurred during the execution ( %d )\n", response);
-    return send(sockfd, responseC, strlen(responseC), 0);
+    int returnCode = send(sockfd, responseC, strlen(responseC), 0);
+    free(responseC);
+    return returnCode;
 }
 
 // Function designed for chat between client and server.
@@ -111,8 +113,7 @@ void *handleConnection(void *p_args)
     unsigned long int T_s = args->T_s;
     int sockfd = args->sock;
     pthread_t tid;
-    char buff[COMMUNICATION_BUF_SIZE];
-
+    char *buff = myMalloc(0, COMMUNICATION_BUF_SIZE, 0);
     char **commandAr;
     int comSize = 0;
 
@@ -132,6 +133,7 @@ void *handleConnection(void *p_args)
     do
     {
         char *command;
+
         printf("\nListening for command...\n");
 
         //Getting the command, if no command is sent, close the connection
@@ -214,7 +216,10 @@ void *handleConnection(void *p_args)
 
     printf("THREAD : %lu ending listening\n", tid);
 
+    free(commandAr);
+    free(buff);
     free(args->client_info);
+
     close(sockfd);
 }
 
@@ -274,9 +279,8 @@ int handleExec(int sockfd, char **commandArr, int size)
 {
     printf("handling Exec\n");
 
-    char *command = malloc(256);
-    char buff[COMMUNICATION_BUF_SIZE];
-    memset(command, 0, 256);
+    char *command = myMalloc(0, 256, 0);
+    char *buff = myMalloc(0, COMMUNICATION_BUF_SIZE, 0);
 
     //Composing the command with the args
     strcat(command, commandArr[1]);
@@ -324,6 +328,7 @@ int handleExec(int sockfd, char **commandArr, int size)
         send(sockfd, err, strlen(err), 0);
     }
     free(command);
+    free(buff);
     return 1;
 }
 
@@ -331,12 +336,9 @@ int handleExec(int sockfd, char **commandArr, int size)
 int handleLSF(int sockfd, char **commandArr, int size)
 {
     printf("handling LSF\n");
-    char *result = malloc(256), *path = malloc(256);
+    char *result = myMalloc(0, 256, 0), *path = myMalloc(0, 256, 0);
     int reSize = 256;
     struct dirent *entry;
-
-    memset(result, 0, 256);
-    memset(path, 0, 256);
 
     strcat(path, commandArr[1]);
 
@@ -371,7 +373,7 @@ int handleLSF(int sockfd, char **commandArr, int size)
                     continue;
 
                 //get file size
-                char *size = malloc(32);
+                char *size = myMalloc(0, 32, 0);
 
                 fseek(f, 0, SEEK_END);
                 sprintf(size, "%ld ", ftell(f));
@@ -413,8 +415,8 @@ int handleSize(int sockfd, char **commandArr, int size)
 {
     printf("handling Size\n");
 
-    char *path_src = malloc(strlen(commandArr[1]) + 1);
-    memset(path_src, 0, sizeof(path_src));
+    char *path_src = myMalloc(0, strlen(commandArr[1]) + 1, 0);
+
     strcat(path_src, commandArr[1]);
     strcat(path_src, "\0");
 
@@ -453,10 +455,8 @@ int handleDownload(int sockfd, char **commandArr, int size)
 
     unsigned long int file_size = strtol(commandArr[2], NULL, 10);
 
-    char *buff = (char *)malloc(COMMUNICATION_BUF_SIZE + 1);
-    char *path_dest = malloc(strlen(commandArr[1] + 1));
-
-    memset(path_dest, 0, strlen(path_dest));
+    char *buff = (char *)myMalloc(0, COMMUNICATION_BUF_SIZE + 1, 0);
+    char *path_dest = myMalloc(0, strlen(commandArr[1] + 1), 0);
 
     strcat(path_dest, commandArr[1]);
 
@@ -482,7 +482,6 @@ int handleDownload(int sockfd, char **commandArr, int size)
             readed_bytes += recSize;
         }
         sendResponse(sockfd, 200);
-        free(buff);
         fclose(f);
     }
     else
@@ -491,6 +490,7 @@ int handleDownload(int sockfd, char **commandArr, int size)
         printf("cannot access file %s\n", path_dest);
         sendResponse(sockfd, 400);
     }
+    free(buff);
     free(path_dest);
 }
 
@@ -501,11 +501,8 @@ int handleUpload(int sockfd, char **commandArr, int size)
 
     unsigned long int file_size = strtol(commandArr[2], NULL, 10);
 
-    char *buff = (char *)malloc(COMMUNICATION_BUF_SIZE + 1);
-    char *path_src = malloc(strlen(commandArr[1]));
-
-    memset(path_src, 0, strlen(path_src));
-    memset(buff, 0, COMMUNICATION_BUF_SIZE + 1);
+    char *buff = (char *)myMalloc(0, COMMUNICATION_BUF_SIZE + 1, 0);
+    char *path_src = myMalloc(0, strlen(commandArr[1] + 1), 0);
 
     strcat(path_src, commandArr[1]);
 
@@ -539,15 +536,19 @@ int handleUpload(int sockfd, char **commandArr, int size)
 int main(int argc, char *argv[])
 {
     int sockfd, client_sock, len, max_thread = MAX_THREADS, port = DEFAULT_TCP_PORT, print_token, forcePrint = 0;
-    char *config_path, *log_path = DEFAULT_LOG_PATH, client_ip[12], client_port[6];
-    char passphrase[256];
+
+    char *config_path = myMalloc(0, 256, 0), *log_path = myMalloc(0, 256, 0), *client_ip = myMalloc(0, 32, 0), *client_port = myMalloc(0, 8, 0);
+    char *passphrase = myMalloc(0, 256, 0);
     unsigned long int T_s;
     struct sockaddr_in servaddr, cli;
     threadpool_t *pool;
 
+    strcat(log_path, DEFAULT_LOG_PATH);
+
     //asking user to insert passphrase
     printf("Starting server...\nPlease insert a passhprase: ");
-    fgets(passphrase, sizeof(passphrase), stdin);
+    scanf("%s", passphrase);
+
     //generation of token
     T_s = createToken(passphrase);
 
@@ -560,29 +561,65 @@ int main(int argc, char *argv[])
     pid = fork();
 
     if (pid < 0)
+    {
+        free(config_path);
+        free(log_path);
+        free(client_ip);
+        free(client_port);
+        free(passphrase);
         exit(EXIT_FAILURE);
+    }
 
     /* Success: Let the parent terminate */
     if (pid > 0)
-        exit(EXIT_SUCCESS);
+    {
+        free(config_path);
+        free(log_path);
+        free(client_ip);
+        free(client_port);
+        free(passphrase);
+        exit(EXIT_FAILURE);
+    }
 
     /* On success: The child process becomes session leader */
     if (setsid() < 0)
+    {
+        free(config_path);
+        free(log_path);
+        free(client_ip);
+        free(client_port);
+        free(passphrase);
         exit(EXIT_FAILURE);
+    }
 
     /* Fork off for the second time*/
     pid = fork();
 
     /* An error occurred */
     if (pid < 0)
+    {
+        free(config_path);
+        free(log_path);
+        free(client_ip);
+        free(client_port);
+        free(passphrase);
         exit(EXIT_FAILURE);
+    }
 
     /* Success: Let the parent terminate */
     if (pid > 0)
-        exit(EXIT_SUCCESS);
+    {
+        free(config_path);
+        free(log_path);
+        free(client_ip);
+        free(client_port);
+        free(passphrase);
+        exit(EXIT_FAILURE);
+    }
 
     //END OF DEAMONIZATION PHASE
 
+    //Parsing args
     //Parsing args
     if (argc > 1)
     {
@@ -590,20 +627,37 @@ int main(int argc, char *argv[])
         {
             if (strcmp("-p", argv[i]) == 0)
             {
-                if (is_a_number(argv[i + 1]) == 0)
+                if (argv[i + 1] == NULL)
+                {
+                    printf("Port not specified, usign default. Plese use -port <number port>\n");
+                    break;
+                }
+
+                else if (is_a_number(argv[i + 1]) == 0)
                     port = atoi(argv[i + 1]);
+            }
+            if (strcmp("-n", argv[i]) == 0)
+            {
+                if (argv[i + 1] == NULL)
+                {
+                    printf("Number of thread not specified, using default. Plese use -n <number threads>\n");
+                    break;
+                }
+
+                if (is_a_number(argv[i + 1]) == 0)
+                    max_thread = atoi(argv[i + 1]);
             }
             if (strcmp("-fp", argv[i]) == 0)
             {
                 forcePrint = 1;
             }
-            if (strcmp("-n", argv[i]) == 0)
-            {
-                if (is_a_number(argv[i + 1]) == 0)
-                    max_thread = atoi(argv[i + 1]);
-            }
             if (strcmp("-c", argv[i]) == 0)
             {
+                if (argv[i + 1] == NULL)
+                {
+                    printf("Log path not specified, not loaded. Please use -l <path>\n");
+                    break;
+                }
                 config_path = argv[i + 1];
             }
             if (strcmp("-s", argv[i]) == 0)
@@ -613,13 +667,20 @@ int main(int argc, char *argv[])
 
             if (strcmp("-l", argv[i]) == 0)
             {
-
-                log_path = argv[i + 1];
-                //Check if the file is valid
-                if (!checkDirectory(log_path))
+                if (argv[i + 1] == NULL)
                 {
-                    log_path = DEFAULT_LOG_PATH;
-                    printf("The log directory is not valid, using the default one\n");
+                    printf("Log path not specified, using the default one. Please use -l <path>\n");
+                    break;
+                }
+                else
+                {
+                    log_path = argv[i + 1];
+                    //Check if the file is valid
+                    if (!checkDirectory(log_path))
+                    {
+                        log_path = DEFAULT_LOG_PATH;
+                        printf("The log directory is not valid, using the default one\n");
+                    }
                 }
             }
         }
@@ -649,6 +710,12 @@ startup:
     if (sockfd == -1)
     {
         printf("socket creation failed...\n");
+
+        free(config_path);
+        free(log_path);
+        free(client_ip);
+        free(client_port);
+        free(passphrase);
         exit(0);
     }
     else
@@ -673,6 +740,11 @@ startup:
     if ((bind(sockfd, (SA *)&servaddr, sizeof(servaddr))) != 0)
     {
         printf("socket bind failed...\n");
+        free(config_path);
+        free(log_path);
+        free(client_ip);
+        free(client_port);
+        free(passphrase);
         exit(0);
     }
     else
@@ -682,6 +754,11 @@ startup:
     if ((listen(sockfd, 5)) != 0)
     {
         printf("Listen failed...\n");
+        free(config_path);
+        free(log_path);
+        free(client_ip);
+        free(client_port);
+        free(passphrase);
         exit(0);
     }
     else
@@ -707,7 +784,7 @@ startup:
 
             p_args.sock = client_sock;
             p_args.T_s = T_s;
-            p_args.client_info = malloc(strlen(client_ip) * strlen(client_port));
+            p_args.client_info = myMalloc(0, strlen(client_ip) * strlen(client_port), 0);
 
             p_args.client_info[0] = client_ip;
             p_args.client_info[1] = client_port;
@@ -730,5 +807,10 @@ startup:
         }
     }
 
+    free(config_path);
+    free(log_path);
+    free(client_ip);
+    free(client_port);
+    free(passphrase);
     close(sockfd);
 }

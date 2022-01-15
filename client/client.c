@@ -6,7 +6,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 
-#include "basicTools.h"
+#include "../libs/basicTools.h"
 
 #define MAX 256
 #define COMMUNICATION_BUF_SIZE 10512
@@ -15,20 +15,20 @@
 // Function designed for chat between client and server.
 void comunicate(int sockfd, unsigned long int T_c_i, unsigned long int T_s, char *command)
 {
-    char buff[MAX];
     int response_auth = beginAuth(sockfd, T_c_i, T_s);
 
-    //Check if the authentication succeeded
+    // Check if the authentication succeeded
     if (response_auth != 200)
     {
         printf("Authentication failed\n");
+
         close(sockfd);
         return;
     }
     else
         printf("Authentication succeded\n");
 
-    //If no command is provided by the user
+    // If no command is provided by the user
     if (strcmp(command, "NONE") == 0)
     {
         printf("no command is specified, ending...\n");
@@ -70,6 +70,7 @@ int beginAuth(int sockfd, unsigned long int T_c_i, unsigned long int T_s)
     enc1 = T_s ^ challenge_response ^ T_c_i;
     enc2 = T_c_i ^ challenge_response;
 
+    printf("%lu\n", T_s);
     //Send the challenge back to the server and wait for the results
     sprintf(buff, "AUTH");
     send(sockfd, buff, sizeof(buff), 0);
@@ -82,7 +83,7 @@ int beginAuth(int sockfd, unsigned long int T_c_i, unsigned long int T_s)
     return response_code;
 }
 
-//Function that handle the client side of the command
+// Function that handle the client side of the command
 int beginCommand(int sockfd, char *command)
 {
     int size = 0;
@@ -97,15 +98,15 @@ int beginCommand(int sockfd, char *command)
 
     printf("\nsending command -%s- \n", commandAr[0]);
 
-    //Set-up the right comunication protocol
+    // Set-up the right comunication protocol
     if (strcmp(commandAr[0], "EXEC") == 0)
     {
-        //Executing exec command
+        // Executing exec command
         execC(sockfd, command);
     }
     else if (strcmp(commandAr[0], "LSF") == 0)
     {
-        //Executing lsf command
+       
         lsfC(sockfd, command);
     }
     else if (strcmp(commandAr[0], "UPLOAD") == 0)
@@ -114,6 +115,13 @@ int beginCommand(int sockfd, char *command)
     }
     else if (strcmp(commandAr[0], "DOWNLOAD") == 0)
     {
+    	if(checkDirectory(commandAr[1]) == 0){
+    		printf("No such file or directory with name %s\n", commandAr[1]);
+    		free(commandAr);
+    		close(sockfd);
+    		return 0;
+    		
+    	}
         downloadC(sockfd, commandAr, size);
     }
     else
@@ -132,17 +140,18 @@ int beginCommand(int sockfd, char *command)
 int execC(int sockfd, char *command)
 {
     int response_code;
-    char out_buff[COMMUNICATION_BUF_SIZE];
+    char *out_buff = myMalloc(0, COMMUNICATION_BUF_SIZE, 0);
     int msgSize;
 
-    //Sending the command to the server
+    // Sending the command to the server
     send(sockfd, command, strlen(command), 0);
 
-    //Waiting for server response
+    // Waiting for server response
     receiveNumberL(sockfd, &response_code);
     if (response_code != 300)
     {
         printf("Some error with the server has occurred ( %d ) \n", response_code);
+        free(out_buff);
         return 0;
     }
     printf("resp : %d\n", response_code);
@@ -157,8 +166,8 @@ int execC(int sockfd, char *command)
             printf("%s", out_buff);
 
             char *msg = subString(out_buff, 0, msgSize);
-            //End the communication if the server sends the terminator string
-            //If the output is over, msg should match " \r\n.\r\n "
+            // End the communication if the server sends the terminator string
+            // If the output is over, msg should match " \r\n.\r\n "
             if (strcmp(msg, "\r\n.\r\n") == 0)
             {
                 free(msg);
@@ -177,25 +186,27 @@ int lsfC(int sockfd, char *command)
 {
     int response_code;
     char out_buff[COMMUNICATION_BUF_SIZE];
-    memset(out_buff, 0, COMMUNICATION_BUF_SIZE);
 
-    //Sending the command to the server
+    // Sending the command to the server
     send(sockfd, command, strlen(command), 0);
 
-    //Waiting for server response
+    // Waiting for server response
     receiveNumberL(sockfd, &response_code);
     if (response_code != 300)
     {
         printf("Some error with the server has occurred ( %d ) \n", response_code);
+        free(out_buff);
+
         return 0;
     }
     printf("resp : %d\n", response_code);
 
     recv(sockfd, out_buff, COMMUNICATION_BUF_SIZE, 0);
-    puts(out_buff);
 
-    memset(out_buff, 0, COMMUNICATION_BUF_SIZE);
+    printf("%s\n", out_buff);
+
     printf("Done\n");
+
     return 1;
 }
 
@@ -204,10 +215,10 @@ unsigned long int sizeC(int sockfd, char *command)
     int response_code;
     unsigned long int out_buff;
 
-    //Sending the command to the server
+    // Sending the command to the server
     send(sockfd, command, strlen(command), 0);
 
-    //Waiting for server response
+    // Waiting for server response
     receiveNumberL(sockfd, &response_code);
     if (response_code != 300)
     {
@@ -230,20 +241,16 @@ int downloadC(int sockfd, char **commandArr, int arSize)
 
     unsigned long int file_size;
     int response_code;
-    char *path_src = malloc(strlen(commandArr[1]));
-    char *path_dest = malloc(strlen(commandArr[2]));
-    char *buff = (char *)malloc(COMMUNICATION_BUF_SIZE);
-    char *command = malloc(512);
-
-    memset(path_dest, 0, sizeof(path_dest));
-    memset(path_src, 0, sizeof(path_src));
-    memset(command, 0, 512);
+    char *path_src = myMalloc(0, strlen(commandArr[1]), 0);
+    char *path_dest = myMalloc(0, strlen(commandArr[2]), 0);
+    char *buff = (char *)myMalloc(0, COMMUNICATION_BUF_SIZE, 0);
+    char *command = myMalloc(0, 512, 0);
 
     strcat(path_src, commandArr[1]);
     strcat(path_dest, commandArr[2]);
     printf("opening the file %s \n", path_src);
 
-    //Preparing the DOWNLOAD command
+    // Preparing the DOWNLOAD command
     FILE *f = fopen(path_src, "rb");
     if (f != NULL)
     {
@@ -258,28 +265,28 @@ int downloadC(int sockfd, char **commandArr, int arSize)
 
         send(sockfd, command, strlen(command), 0);
 
-        //Wait for the server for accepting the download
+        // Wait for the server for accepting the download
         receiveNumberL(sockfd, &response_code);
         if (response_code == 200)
         {
 
-            //Sending the file
+            // Sending the file
             int sz = 0;
             memset(buff, 0, COMMUNICATION_BUF_SIZE + 1);
             while ((sz = fread(buff, COMMUNICATION_BUF_SIZE, 1, f)) > -1)
             {
                 strcat(buff, "\0");
-                //send the chunk to the server
+                // send the chunk to the server
                 send(sockfd, buff, strlen(buff), 0);
 
-                //If it didn't read all BUF SIZE bytes, the eof has come
+                // If it didn't read all BUF SIZE bytes, the eof has come
                 if (sz != 1)
                     break;
 
                 memset(buff, 0, COMMUNICATION_BUF_SIZE + 1);
             }
 
-            //Waiting for server to confirm the reception
+            // Waiting for server to confirm the reception
             receiveNumberL(sockfd, &response_code);
 
             if (response_code != 200)
@@ -292,12 +299,17 @@ int downloadC(int sockfd, char **commandArr, int arSize)
         else
         {
             printf("Some error with the server has occurred ( %d ) \n", response_code);
+            free(path_src);
+            free(path_dest);
+            free(buff);
+            free(command);
+            exit(0);
         }
         fclose(f);
     }
     else
     {
-        printf("cannot access the file\n");
+        perror("cannot access the file\n");
     }
     free(buff);
     free(path_dest);
@@ -313,10 +325,10 @@ int uploadC(int sockfd, char **commandArr, int arSize)
 
     unsigned long int file_size;
     int response_code;
-    char *path_src = malloc(strlen(commandArr[1]));
-    char *path_dest = malloc(strlen(commandArr[2]));
-    char *command = malloc(512);
-    char *buff = malloc(COMMUNICATION_BUF_SIZE);
+    char *path_src = myMalloc(0, strlen(commandArr[1]), 0);
+    char *path_dest = myMalloc(0, strlen(commandArr[2]), 0);
+    char *command = myMalloc(0, 512, 0);
+    char *buff = myMalloc(0, COMMUNICATION_BUF_SIZE, 0);
 
     memset(path_dest, 0, strlen(commandArr[1]));
     memset(path_src, 0, strlen(commandArr[2]));
@@ -326,18 +338,25 @@ int uploadC(int sockfd, char **commandArr, int arSize)
     strcat(path_src, commandArr[1]);
     strcat(path_dest, commandArr[2]);
 
-    //Preparing the SIZE command
+    // Preparing the SIZE command
     sprintf(command, "SIZE %s", path_src);
 
-    //Calling the right executioner for the SIZE command
+    // Calling the right executioner for the SIZE command
     file_size = sizeC(sockfd, command);
     if (file_size == 0)
+    {
+        perror('FIle size is 0');
+        free(path_src);
+        free(path_dest);
+        free(buff);
+        free(command);
         return;
+    }
 
     /* ____________________ */
 
     memset(command, 0, 512);
-    //Preparing the UPLOAD command
+    // Preparing the UPLOAD command
     sprintf(command, "UPLOAD %s %li", path_src, file_size);
 
     FILE *f = fopen(path_dest, "w");
@@ -345,7 +364,7 @@ int uploadC(int sockfd, char **commandArr, int arSize)
     {
         send(sockfd, command, strlen(command), 0);
 
-        //Wait for the server sending 300
+        // Wait for the server sending 300
         receiveNumberL(sockfd, &response_code);
 
         if (response_code == 300)
@@ -370,6 +389,12 @@ int uploadC(int sockfd, char **commandArr, int arSize)
         else
         {
             printf("Some error with the server has occurred ( %d ) \n", response_code);
+            free(path_src);
+            free(path_dest);
+            free(buff);
+            free(command);
+            fclose(f);
+            exit(0);
         }
     }
     else
@@ -387,56 +412,107 @@ int uploadC(int sockfd, char **commandArr, int arSize)
 /////////////////////////////////////////////////
 int main(int argc, char *argv[])
 {
-
-    int sockfd, connfd, len, port = -1;
-    char client_passphrase[256], server_passphrase[256], *server_address = "0.0.0.0", *command = malloc(512);
+    int port = 8888, sockfd;
+    char *client_passphrase, *server_passphrase, *server_address, *command;
     unsigned long int T_c_i, T_s;
     struct sockaddr_in servaddr, cli;
 
-    memset(command, 0, 512);
-    strcat(command, "");
+    client_passphrase = myMalloc(0, 256, 0);
+    server_passphrase = myMalloc(0, 256, 0);
+    server_address = myMalloc(0, 256, 1);
+    command = myMalloc(0, 256, 1);
 
-    if (argc > 2)
+    strcat(server_address, "127.0.0.1");
+
+    if (argc > 3)
     {
         for (int i = 0; i < argc; i++)
         {
             if (strcmp("-p", argv[i]) == 0)
             {
+                if (argv[i + 1] == NULL)
+                {
+                    perror("Port not specified, using 8888. Plese use -port <number port>\n");
+                    break;
+                }
                 if (is_a_number(argv[i + 1]) == 0)
                     port = atoi(argv[i + 1]);
             }
             if (strcmp("-h", argv[i]) == 0)
             {
+                if (argv[i + 1] == NULL)
+                {
+                    printf("Addres not specified, using localhost. Plese use -h <address>\n");
+                    break;
+                }
+
                 server_address = argv[i + 1];
             }
 
-            //START THE PARSE OF THE COMMAND
+            // START THE PARSE OF THE COMMAND
 
-            //Exec command
+            // Exec command
             if (strcmp("-e", argv[i]) == 0)
             {
+                if (argv[i + 1] == NULL)
+                {
+                    perror("EXEC: wrong command, missing arguments.\nUse -e <commands...>\nClosing socket...\n");
+                    free(client_passphrase);
+                    free(server_passphrase);
+                    free(command);
+                    exit(0);
+                }
+
                 strcat(command, "EXEC ");
-                strcat(command, argv[i + 1]);
+
+                int j = i + 1;
+                while (argv[j] != NULL)
+                {
+                    strcat(command, argv[j++]);
+                    strcat(command, " ");
+                }
             }
-            //Path command
+            // Path command
             else if (strcmp("-l", argv[i]) == 0)
             {
-
+                if (argv[i + 1] == NULL)
+                {
+                    perror("LSF: wrong command, missing arguments.\nUse -l <path>\nClosing socket...\n");
+                    free(client_passphrase);
+                    free(server_passphrase);
+                    free(command);
+                    exit(0);
+                }
                 strcat(command, "LSF ");
                 strcat(command, argv[i + 1]);
             }
-            //Download command
+            // Download command
             else if (strcmp("-d", argv[i]) == 0)
             {
-
+                if (argv[i + 1] == NULL || argv[i + 2] == NULL)
+                {
+                    perror("DOWNLOAD: wrong command, missing arguments.\nUse -d <path_src> <path_dest>\nClosing socket...\n");
+                    free(client_passphrase);
+                    free(server_passphrase);
+                    free(command);
+                    exit(0);
+                }
                 strcat(command, "DOWNLOAD ");
                 strcat(command, argv[i + 1]);
                 strcat(command, " ");
                 strcat(command, argv[i + 2]);
             }
-            //Upload command
+            // Upload command
             else if (strcmp("-u", argv[i]) == 0)
             {
+                if (argv[i + 1] == NULL || argv[i + 2] == NULL)
+                {
+                    perror("UPLOAD: wrong command, missing arguments.\nUse -u <path_src> <path_dest>\nClosing socket...\n");
+                    free(client_passphrase);
+                    free(server_passphrase);
+                    free(command);
+                    exit(0);
+                }
 
                 strcat(command, "UPLOAD ");
                 strcat(command, argv[i + 1]);
@@ -447,7 +523,10 @@ int main(int argc, char *argv[])
     }
     else
     {
-        printf("missing arguments ( min 2 )\n");
+        perror("missing arguments\nLIST of NECESSARY command:\n-h <server addr>\n-p <port number>\nLIST of command:\nEXEC: -e <commands..>\nLSF: -l <path>\nDOWNLOAD: -d <path_src> <path_dest>\nUPLOAD: -u <path_src> <path_dest>\n");
+        free(client_passphrase);
+        free(server_passphrase);
+        free(command);
         exit(0);
     }
 
@@ -455,26 +534,29 @@ int main(int argc, char *argv[])
         strcat(command, "NONE");
     strcat(command, "\0");
 
-    //Check if server address and port was setted
-    if (strcmp(server_address, "0.0.0.0") == 0 || port == -1)
+    // Check if server address and port was setted
+    if (strcmp(server_address, "") == 0 || port == -1)
     {
-        printf("Server address and port must be specified \n");
+        perror("Server address and port must be specified \n");
+        free(client_passphrase);
+        free(server_passphrase);
+        free(command);
         exit(0);
     }
 
     /* TOKEN GENERATION PHASE */
 
-    //asking user to insert client-passphrase
+    // asking user to insert client-passphrase
     printf("Starting client...\nPlease insert a client passhprase: ");
-    fgets(client_passphrase, sizeof(client_passphrase), stdin);
-    //generation of client token
+    scanf("%s", client_passphrase);
+    // generation of client token
     T_c_i = createToken(client_passphrase);
 
-    //asking user to insert server-passphrase
+    // asking user to insert server-passphrase
     printf("\nPlease insert the server passhprase: ");
-    fgets(server_passphrase, sizeof(server_passphrase), stdin);
+    scanf("%s", server_passphrase);
     printf("\n");
-    //generation of server token
+    // generation of server token
     T_s = createToken(server_passphrase);
 
     // socket create and varification
@@ -482,6 +564,9 @@ int main(int argc, char *argv[])
     if (sockfd == -1)
     {
         printf("socket creation failed...\n");
+        free(client_passphrase);
+        free(server_passphrase);
+        free(command);
         exit(0);
     }
     else
@@ -498,13 +583,20 @@ int main(int argc, char *argv[])
     if (connect(sockfd, (SA *)&servaddr, sizeof(servaddr)) != 0)
     {
         printf("connection with the server failed...\n");
+        free(client_passphrase);
+        free(server_passphrase);
+        free(command);
         exit(0);
     }
     else
         printf("connected to the server..\n");
 
+    puts(command);
     comunicate(sockfd, T_c_i, T_s, command);
 
     // close the socket
+    free(client_passphrase);
+    free(server_passphrase);
+    free(command);
     close(sockfd);
 }
